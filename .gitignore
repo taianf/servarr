@@ -5,6 +5,9 @@ node_modules/
 
 # Decrypted secrets
 secrets.dec.yaml
+# Rendered k8s Secret manifest (plaintext API keys, generated
+# per-machine by bin/render-secrets)
+manifests/30-secrets.yaml
 
 # Local k3s kubeconfig symlinks
 kubeconfig
