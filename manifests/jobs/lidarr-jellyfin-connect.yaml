@@ -1,0 +1,119 @@
+# lidarr-jellyfin-connect: same pattern as the other two, but
+# Lidarr uses the v1 API and different event-toggle names
+# (onAlbumDownload / onAlbumAdded / onArtistAdd / onTrackFileDelete).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: lidarr-jellyfin-connect
+  namespace: servarr
+  labels:
+    app.kubernetes.io/component: jellyfin-wiring
+spec:
+  backoffLimit: 3
+  template:
+    spec:
+      serviceAccountName: servarr-jobs
+      restartPolicy: OnFailure
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 169
+        fsGroup: 169
+      containers:
+        - name: lidarr-jellyfin-connect
+          image: alpine:3.20
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              apk add --no-cache curl jq >/dev/null
+
+              LIDARR_URL="http://lidarr:8686"
+              LIDARR_API_KEY=$(cat /etc/secrets/lidarr/api_key)
+              JELLYFIN_API_KEY=$(cat /etc/secrets/jellyfin/api_key)
+
+              for i in $(seq 1 60); do
+                if curl -sf -H "X-Api-Key: $LIDARR_API_KEY" \
+                  "$LIDARR_URL/api/v1/system/status" >/dev/null; then
+                  break
+                fi
+                [ "$i" -eq 60 ] && { echo "Lidarr API never came up"; exit 1; }
+                sleep 2
+              done
+
+              SCHEMA=$(curl -sf -H "X-Api-Key: $LIDARR_API_KEY" \
+                "$LIDARR_URL/api/v1/notification/schema" \
+                | jq -r --arg impl "Emby / Jellyfin" \
+                  '.[] | select(.implementationName == $impl) | @json' | head -n1)
+              if [ -z "$SCHEMA" ] || [ "$SCHEMA" = "null" ]; then
+                echo "Emby / Jellyfin schema not found"; exit 1
+              fi
+
+              EXISTING_ID=$(curl -sf -H "X-Api-Key: $LIDARR_API_KEY" \
+                "$LIDARR_URL/api/v1/notification" \
+                | jq -r --arg impl MediaBrowser \
+                  '.[] | select(.implementation == $impl) | .id' | head -n1)
+
+              NOTIFICATION=$(echo "$SCHEMA" | jq \
+                --arg host "jellyfin" \
+                --argjson port 8096 \
+                --arg apiKey "$JELLYFIN_API_KEY" \
+                '
+                  .name = "Jellyfin"
+                  | .onGrab = false
+                  | .onDownload = true
+                  | .onUpgrade = true
+                  | .onRename = true
+                  | .onAlbumAdded = true
+                  | .onAlbumDownload = true
+                  | .onArtistAdd = true
+                  | .onArtistDelete = true
+                  | .onTrackFileDelete = true
+                  | .onTrackFileDeleteForUpgrade = true
+                  | .onImportComplete = true
+                  | .onHealthIssue = false
+                  | .onHealthRestored = false
+                  | .onApplicationUpdate = true
+                  | .onManualInteractionRequired = false
+                  | .includeHealthWarnings = false
+                  | .fields |= map(
+                      if .name == "host" then .value = $host
+                      elif .name == "port" then .value = $port
+                      elif .name == "apiKey" then .value = $apiKey
+                      elif .name == "useSsl" then .value = false
+                      elif .name == "urlBase" then .value = ""
+                      elif .name == "notify" then .value = false
+                      elif .name == "updateLibrary" then .value = true
+                      else . end
+                    )
+                ')
+
+              if [ -n "$EXISTING_ID" ] && [ "$EXISTING_ID" != "null" ]; then
+                echo "Updating Lidarr Jellyfin Connect (id=$EXISTING_ID)"
+                curl -sf -X PUT -H "X-Api-Key: $LIDARR_API_KEY" \
+                  -H "Content-Type: application/json" -d "$NOTIFICATION" \
+                  "$LIDARR_URL/api/v1/notification/$EXISTING_ID" >/dev/null
+              else
+                echo "Creating Lidarr Jellyfin Connect"
+                curl -sf -X POST -H "X-Api-Key: $LIDARR_API_KEY" \
+                  -H "Content-Type: application/json" -d "$NOTIFICATION" \
+                  "$LIDARR_URL/api/v1/notification" >/dev/null
+              fi
+
+              echo "Lidarr Jellyfin Connect configured"
+          env:
+            - name: HOME
+              value: /tmp
+          volumeMounts:
+            - name: lidarr-secrets
+              mountPath: /etc/secrets/lidarr
+              readOnly: true
+            - name: jellyfin-secrets
+              mountPath: /etc/secrets/jellyfin
+              readOnly: true
+      volumes:
+        - name: lidarr-secrets
+          secret:
+            secretName: lidarr-secrets
+        - name: jellyfin-secrets
+          secret:
+            secretName: jellyfin-secrets

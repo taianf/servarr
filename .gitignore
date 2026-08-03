@@ -1,0 +1,17 @@
+# Build artifacts
+result/
+dist/
+
+# Decrypted secrets
+secrets.dec.yaml
+
+# Local k3s kubeconfig symlinks
+kubeconfig
+
+# OpenCode local state
+.opencode/
+.omo/
+
+# Editor / OS
+*.swp
+.DS_Store

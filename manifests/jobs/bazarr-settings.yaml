@@ -1,0 +1,82 @@
+# bazarr-settings: re-apply Bazarr's runtime settings (languages,
+# providers, default profiles) via the Bazarr API. The init
+# container in values/bazarr.yaml only writes config.yaml on first
+# start; this Job handles settings that Bazarr stores in its
+# database (so they must be set via the API, not the YAML).
+# Idempotent: a no-op when settings are already correct.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: bazarr-settings
+  namespace: servarr
+  labels:
+    app.kubernetes.io/component: bazarr-wiring
+spec:
+  backoffLimit: 3
+  template:
+    spec:
+      serviceAccountName: servarr-jobs
+      restartPolicy: OnFailure
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 169
+        fsGroup: 169
+      containers:
+        - name: bazarr-settings
+          image: alpine:3.20
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              apk add --no-cache curl >/dev/null
+
+              BAZARR_URL="http://bazarr:6767"
+              BAZARR_API_KEY=$(cat /etc/secrets/bazarr/api_key)
+
+              for i in $(seq 1 60); do
+                if curl -sf -H "X-Api-Key: $BAZARR_API_KEY" \
+                  "$BAZARR_URL/api/system/settings" >/dev/null; then
+                  break
+                fi
+                [ "$i" -eq 60 ] && { echo "Bazarr API never came up"; exit 1; }
+                sleep 2
+              done
+
+              HTTP_CODE=$(curl -s -o /tmp/bazarr_resp -w "%{http_code}" \
+                -X POST "$BAZARR_URL/api/system/settings" \
+                -H "X-Api-Key: $BAZARR_API_KEY" \
+                -d 'settings-general-use_sonarr=true' \
+                -d 'settings-general-use_radarr=true' \
+                -d 'settings-general-minimum_score=90' \
+                -d 'settings-general-minimum_score_movie=90' \
+                -d 'settings-general-use_postprocessing=true' \
+                -d 'settings-general-postprocessing_threshold=90' \
+                -d 'settings-general-serie_default_enabled=true' \
+                -d 'settings-general-serie_default_profile=1' \
+                -d 'settings-general-movie_default_enabled=true' \
+                -d 'settings-general-movie_default_profile=1' \
+                -d 'settings-general-enabled_providers=addic7ed' \
+                -d 'settings-general-enabled_providers=podnapisi' \
+                -d 'settings-general-enabled_providers=opensubtitles' \
+                -d 'languages-enabled=pb' \
+                -d 'languages-enabled=en' \
+                -d 'languages-profiles=[{"profileId":1,"name":"pt-BR + en","cutoff":1,"items":[{"id":1,"language":"pb","audio_exclude":false,"audio_only_include":false,"forced":false,"hi":false},{"id":2,"language":"en","audio_exclude":false,"audio_only_include":false,"forced":false,"hi":false}],"mustContain":"","mustNotContain":"","originalFormat":null,"tag":""}]')
+
+              if [ "$HTTP_CODE" -ge 400 ]; then
+                echo "Bazarr settings POST failed (HTTP $HTTP_CODE):"
+                cat /tmp/bazarr_resp
+                exit 1
+              fi
+
+              echo "Bazarr settings applied (languages, providers, defaults)"
+          env:
+            - name: HOME
+              value: /tmp
+          volumeMounts:
+            - name: bazarr-secrets
+              mountPath: /etc/secrets/bazarr
+              readOnly: true
+      volumes:
+        - name: bazarr-secrets
+          secret:
+            secretName: bazarr-secrets

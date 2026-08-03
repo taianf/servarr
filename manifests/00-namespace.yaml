@@ -1,0 +1,11 @@
+# Cluster-level resources for the *arr stack
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: servarr
+  labels:
+    # Required label for any pod that should be reachable via the
+    # k3s servicelb NodePort allocations (Traefik HelmChartConfig
+    # already binds 30080/30443). NetworkPolicy below uses
+    # `kubernetes.io/metadata.name: servarr` to allow intra-ns traffic.
+    app.kubernetes.io/part-of: servarr

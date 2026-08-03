@@ -1,0 +1,141 @@
+# prowlarr-indexers: declare the indexer list in Prowlarr.
+# Idempotent. The list is mirrored from the nixflix NixOS config
+# (nixflix/default.nix lines 96-102). Edit this list (and re-run
+# `kubectl create job --from=jobs/prowlarr-indexers`) when you want
+# to add/remove indexers.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: prowlarr-indexers
+  namespace: servarr
+  labels:
+    app.kubernetes.io/component: prowlarr-wiring
+spec:
+  backoffLimit: 3
+  template:
+    spec:
+      serviceAccountName: servarr-jobs
+      restartPolicy: OnFailure
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 169
+        fsGroup: 169
+      initContainers:
+        - name: wait-for-prowlarr
+          image: alpine:3.20
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              apk add --no-cache curl >/dev/null
+              PROWLARR_URL="http://prowlarr:9696"
+              API_KEY=$(cat /etc/secrets/prowlarr/api_key)
+              for i in $(seq 1 60); do
+                if curl -sf -H "X-Api-Key: $API_KEY" "$PROWLARR_URL/api/v1/system/status" >/dev/null; then
+                  echo "Prowlarr API ready"
+                  exit 0
+                fi
+                [ "$i" -eq 60 ] && { echo "Prowlarr API never came up"; exit 1; }
+                sleep 2
+              done
+          volumeMounts:
+            - name: prowlarr-secrets
+              mountPath: /etc/secrets/prowlarr
+              readOnly: true
+      containers:
+        - name: prowlarr-indexers
+          image: alpine:3.20
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              apk add --no-cache curl jq >/dev/null
+
+              PROWLARR_URL="http://prowlarr:9696"
+              API_KEY=$(cat /etc/secrets/prowlarr/api_key)
+
+              # Indexer list (kept in sync with the nixflix NixOS config).
+              # Each entry is "Name|DefinitionPath|Protocol|Privacy|Url".
+              # `DefinitionPath` is the path segment under Prowlarr's
+              # /api/v1/indexer/schema where the implementation lives.
+              INDEXERS='
+                The Pirate Bay|cardigann|1|1|https://thepiratebay.org
+                1337x|cardigann|1|1|https://1337x.to
+                TorrentGalaxy|cardigann|1|1|https://torrentgalaxy.to
+                YTS|cardigann|2|1|https://yts.mx
+                LimeTorrents|cardigann|1|1|https://www.limetorrents.info
+              '
+
+              # 1=public torrent, 2=public usenet, 1=public
+              sync_indexer() {
+                local name="$1" definitionPath="$2" protocol="$3" privacy="$4" url="$5"
+
+                # Build indexer payload using Prowlarr's schema.
+                # We POST without specifying implementation; Prowlarr
+                # looks up the implementation from the name in the
+                # Torznab/Torrent cardigann definitions.
+                local payload
+                payload=$(jq -n \
+                  --arg name "$name" \
+                  --argjson protocol "$protocol" \
+                  --argjson privacy "$privacy" \
+                  --arg baseUrl "$url" \
+                  --arg definitionPath "$definitionPath" \
+                  '{
+                    name: $name,
+                    implementation: "Cardigann",
+                    implementationName: $name,
+                    configContract: "CardigannSettings",
+                    enable: true,
+                    protocol: $protocol,
+                    privacy: $privacy,
+                    downloadClientId: 0,
+                    priority: 25,
+                    baseUrl: $baseUrl,
+                    fields: [
+                      {name: "definitionFile", value: $definitionPath},
+                      {name: "defaultSorting", value: "desc"},
+                      {name: "removeYear", value: false},
+                      {name: "queryLimit", value: 100},
+                      {name: "queryTime", value: 30}
+                    ]
+                  }')
+
+                # Check if already exists
+                local existing_id
+                existing_id=$(curl -sf -H "X-Api-Key: $API_KEY" \
+                  "$PROWLARR_URL/api/v1/indexer" \
+                  | jq -r --arg n "$name" '.[] | select(.name == $n) | .id' | head -n1)
+
+                if [ -n "$existing_id" ] && [ "$existing_id" != "null" ]; then
+                  echo "Indexer '$name' already exists (id=$existing_id), updating"
+                  curl -sf -X PUT -H "X-Api-Key: $API_KEY" -H "Content-Type: application/json" \
+                    -d "$payload" \
+                    "$PROWLARR_URL/api/v1/indexer/$existing_id" >/dev/null
+                else
+                  echo "Creating indexer '$name'"
+                  curl -sf -X POST -H "X-Api-Key: $API_KEY" -H "Content-Type: application/json" \
+                    -d "$payload" \
+                    "$PROWLARR_URL/api/v1/indexer" >/dev/null
+                fi
+              }
+
+              while IFS='|' read -r name def proto priv url; do
+                # Skip blank/comment lines
+                [ -z "$name" ] || [ "${name#\#}" != "$name" ] && continue
+                sync_indexer "$name" "$def" "$proto" "$priv" "$url"
+              done <<EOF
+              $INDEXERS
+              EOF
+
+              echo "Prowlarr indexers configured"
+          env:
+            - name: HOME
+              value: /tmp
+          volumeMounts:
+            - name: prowlarr-secrets
+              mountPath: /etc/secrets/prowlarr
+              readOnly: true
+      volumes:
+        - name: prowlarr-secrets
+          secret:
+            secretName: prowlarr-secrets

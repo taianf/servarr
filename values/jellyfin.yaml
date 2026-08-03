@@ -1,0 +1,49 @@
+# Jellyfin — media server
+# - Config on host at /data/.state/jellyfin
+# - Reads /data/media (all libraries)
+# - Transcoding cache lives in /config/transcodes (same dir)
+# - HTTP service on port 8096
+jellyfin:
+  enabled: true
+
+  service:
+    type: ClusterIP
+    port: 8096
+
+  persistence:
+    config:
+      enabled: false
+    media:
+      enabled: false
+
+  podSecurityContext:
+    fsGroup: 169
+    runAsUser: 1000
+    runAsGroup: 169
+
+  extraVolumes:
+    - name: config
+      hostPath:
+        path: /data/.state/jellyfin
+        type: DirectoryOrCreate
+    - name: data
+      hostPath:
+        path: /data
+        type: Directory
+    - name: tmp
+      emptyDir: {}
+
+  extraVolumeMounts:
+    - name: config
+      mountPath: /config
+    - name: data
+      mountPath: /data
+    - name: tmp
+      mountPath: /tmp
+
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      memory: 4Gi

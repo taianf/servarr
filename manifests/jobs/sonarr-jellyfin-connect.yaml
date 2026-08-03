@@ -1,0 +1,125 @@
+# sonarr-jellyfin-connect: idempotently create/update the "Emby /
+# Jellyfin" notification in Sonarr. The notification tells Sonarr
+# to hit Jellyfin's library refresh endpoint whenever it imports a
+# series/episode. Same pattern as the nixflix systemd unit.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: sonarr-jellyfin-connect
+  namespace: servarr
+  labels:
+    app.kubernetes.io/component: jellyfin-wiring
+spec:
+  backoffLimit: 3
+  template:
+    spec:
+      serviceAccountName: servarr-jobs
+      restartPolicy: OnFailure
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 169
+        fsGroup: 169
+      containers:
+        - name: sonarr-jellyfin-connect
+          image: alpine:3.20
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              apk add --no-cache curl jq >/dev/null
+
+              SONARR_URL="http://sonarr:8989"
+              JELLYFIN_URL="http://jellyfin:8096"
+
+              SONARR_API_KEY=$(cat /etc/secrets/sonarr/api_key)
+              JELLYFIN_API_KEY=$(cat /etc/secrets/jellyfin/api_key)
+
+              # Wait for Sonarr API
+              for i in $(seq 1 60); do
+                if curl -sf -H "X-Api-Key: $SONARR_API_KEY" \
+                  "$SONARR_URL/api/v3/system/status" >/dev/null; then
+                  break
+                fi
+                [ "$i" -eq 60 ] && { echo "Sonarr API never came up"; exit 1; }
+                sleep 2
+              done
+
+              # Find the Emby/Jellyfin schema
+              SCHEMAS=$(curl -sf -H "X-Api-Key: $SONARR_API_KEY" \
+                "$SONARR_URL/api/v3/notification/schema")
+              SCHEMA=$(echo "$SCHEMAS" | jq -r --arg impl "Emby / Jellyfin" \
+                '.[] | select(.implementationName == $impl) | @json' | head -n1)
+              if [ -z "$SCHEMA" ] || [ "$SCHEMA" = "null" ]; then
+                echo "Emby / Jellyfin schema not found"; exit 1
+              fi
+
+              # Check for an existing entry (existing entries use
+              # implementation=MediaBrowser, not the friendly name).
+              EXISTING_ID=$(curl -sf -H "X-Api-Key: $SONARR_API_KEY" \
+                "$SONARR_URL/api/v3/notification" \
+                | jq -r --arg impl MediaBrowser \
+                '.[] | select(.implementation == $impl) | .id' | head -n1)
+
+              # Build the notification payload from the schema.
+              NOTIFICATION=$(echo "$SCHEMA" | jq \
+                --arg host "jellyfin" \
+                --argjson port 8096 \
+                --arg apiKey "$JELLYFIN_API_KEY" \
+                '
+                  .name = "Jellyfin"
+                  | .onGrab = false
+                  | .onDownload = true
+                  | .onUpgrade = true
+                  | .onRename = true
+                  | .onSeriesAdd = true
+                  | .onSeriesDelete = true
+                  | .onEpisodeFileDelete = true
+                  | .onEpisodeFileDeleteForUpgrade = true
+                  | .onImportComplete = true
+                  | .onHealthIssue = false
+                  | .onHealthRestored = false
+                  | .onApplicationUpdate = true
+                  | .onManualInteractionRequired = false
+                  | .includeHealthWarnings = false
+                  | .fields |= map(
+                      if .name == "host" then .value = $host
+                      elif .name == "port" then .value = $port
+                      elif .name == "apiKey" then .value = $apiKey
+                      elif .name == "useSsl" then .value = false
+                      elif .name == "urlBase" then .value = ""
+                      elif .name == "notify" then .value = false
+                      elif .name == "updateLibrary" then .value = true
+                      else . end
+                    )
+                ')
+
+              if [ -n "$EXISTING_ID" ] && [ "$EXISTING_ID" != "null" ]; then
+                echo "Updating Sonarr Jellyfin Connect (id=$EXISTING_ID)"
+                curl -sf -X PUT -H "X-Api-Key: $SONARR_API_KEY" \
+                  -H "Content-Type: application/json" -d "$NOTIFICATION" \
+                  "$SONARR_URL/api/v3/notification/$EXISTING_ID" >/dev/null
+              else
+                echo "Creating Sonarr Jellyfin Connect"
+                curl -sf -X POST -H "X-Api-Key: $SONARR_API_KEY" \
+                  -H "Content-Type: application/json" -d "$NOTIFICATION" \
+                  "$SONARR_URL/api/v3/notification" >/dev/null
+              fi
+
+              echo "Sonarr Jellyfin Connect configured"
+          env:
+            - name: HOME
+              value: /tmp
+          volumeMounts:
+            - name: sonarr-secrets
+              mountPath: /etc/secrets/sonarr
+              readOnly: true
+            - name: jellyfin-secrets
+              mountPath: /etc/secrets/jellyfin
+              readOnly: true
+      volumes:
+        - name: sonarr-secrets
+          secret:
+            secretName: sonarr-secrets
+        - name: jellyfin-secrets
+          secret:
+            secretName: jellyfin-secrets

@@ -1,0 +1,121 @@
+# prowlarr-applications: declare Sonarr/Radarr/Lidarr/Readarr as
+# Prowlarr "Applications" with fullSync enabled. Prowlarr then pushes
+# the indexer config into each *arr app on its own.
+# Idempotent: if the app entry already exists, Prowlarr returns it
+# and we leave it alone.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: prowlarr-applications
+  namespace: servarr
+  labels:
+    app.kubernetes.io/component: prowlarr-wiring
+spec:
+  backoffLimit: 3
+  template:
+    spec:
+      serviceAccountName: servarr-jobs
+      restartPolicy: OnFailure
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 169
+        fsGroup: 169
+      containers:
+        - name: prowlarr-applications
+          image: alpine:3.20
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              apk add --no-cache curl jq >/dev/null
+
+              PROWLARR_URL="http://prowlarr:9696"
+              API_KEY=$(cat /etc/secrets/prowlarr/api_key)
+
+              # Wait for Prowlarr API
+              for i in $(seq 1 60); do
+                if curl -sf -H "X-Api-Key: $API_KEY" "$PROWLARR_URL/api/v1/system/status" >/dev/null; then
+                  break
+                fi
+                [ "$i" -eq 60 ] && { echo "Prowlarr API never came up"; exit 1; }
+                sleep 2
+              done
+
+              add_app() {
+                local name="$1"
+                local sync_level="$2"  # "fullSync" enables auto-sync
+                local base_url="$3"
+                local api_key_secret="$4"
+                local app_api_key
+
+                app_api_key=$(cat "/etc/secrets/$api_key_secret/api_key")
+
+                # Prowlarr Applications schema: name, syncLevel, baseUrl, apiKey
+                local payload
+                payload=$(jq -n \
+                  --arg name "$name" \
+                  --arg baseUrl "$base_url" \
+                  --arg apiKey "$app_api_key" \
+                  --arg syncLevel "$sync_level" \
+                  '{name: $name, syncLevel: $syncLevel, baseUrl: $baseUrl, apiKey: $apiKey, implementation: "Generic", configContract: "GenericApplicationSettings", fields: []}')
+
+                # Check if already exists
+                local existing_id
+                existing_id=$(curl -sf -H "X-Api-Key: $API_KEY" \
+                  "$PROWLARR_URL/api/v1/applications" \
+                  | jq -r --arg n "$name" '.[] | select(.name == $n) | .id' | head -n1)
+
+                if [ -n "$existing_id" ] && [ "$existing_id" != "null" ]; then
+                  echo "Prowlarr application '$name' already exists (id=$existing_id), updating"
+                  curl -sf -X PUT -H "X-Api-Key: $API_KEY" -H "Content-Type: application/json" \
+                    -d "$payload" \
+                    "$PROWLARR_URL/api/v1/applications/$existing_id" >/dev/null
+                else
+                  echo "Creating Prowlarr application '$name'"
+                  curl -sf -X POST -H "X-Api-Key: $API_KEY" -H "Content-Type: application/json" \
+                    -d "$payload" \
+                    "$PROWLARR_URL/api/v1/applications" >/dev/null
+                fi
+              }
+
+              add_app "Sonarr"  "fullSync" "http://sonarr:8989"  "sonarr"
+              add_app "Radarr"  "fullSync" "http://radarr:7878"  "radarr"
+              add_app "Lidarr"  "fullSync" "http://lidarr:8686"  "lidarr"
+              add_app "Readarr" "fullSync" "http://readarr:8787" "readarr"
+
+              echo "Prowlarr applications configured"
+          env:
+            - name: HOME
+              value: /tmp
+          volumeMounts:
+            - name: prowlarr-secrets
+              mountPath: /etc/secrets/prowlarr
+              readOnly: true
+            - name: sonarr-secrets
+              mountPath: /etc/secrets/sonarr
+              readOnly: true
+            - name: radarr-secrets
+              mountPath: /etc/secrets/radarr
+              readOnly: true
+            - name: lidarr-secrets
+              mountPath: /etc/secrets/lidarr
+              readOnly: true
+            - name: readarr-secrets
+              mountPath: /etc/secrets/readarr
+              readOnly: true
+      volumes:
+        - name: prowlarr-secrets
+          secret:
+            secretName: prowlarr-secrets
+        - name: sonarr-secrets
+          secret:
+            secretName: sonarr-secrets
+        - name: radarr-secrets
+          secret:
+            secretName: radarr-secrets
+        - name: lidarr-secrets
+          secret:
+            secretName: lidarr-secrets
+        - name: readarr-secrets
+          secret:
+            secretName: readarr-secrets

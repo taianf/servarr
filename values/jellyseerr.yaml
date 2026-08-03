@@ -1,0 +1,39 @@
+# Jellyseerr — media request manager
+# - Config on host at /data/.state/seerr
+# - Stateless w.r.t. /data (only reads via *arr APIs)
+# - HTTP service on port 5055
+seerr:
+  enabled: true
+
+  service:
+    type: ClusterIP
+    port: 5055
+
+  persistence:
+    enabled: false
+
+  podSecurityContext:
+    fsGroup: 169
+    runAsUser: 1000
+    runAsGroup: 169
+
+  extraVolumes:
+    - name: config
+      hostPath:
+        path: /data/.state/seerr
+        type: DirectoryOrCreate
+    - name: tmp
+      emptyDir: {}
+
+  extraVolumeMounts:
+    - name: config
+      mountPath: /config
+    - name: tmp
+      mountPath: /tmp
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 512Mi

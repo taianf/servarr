@@ -1,0 +1,217 @@
+# Ingress resources for every *arr app.
+# All use the k3s Traefik ingress class, route to the in-cluster
+# ClusterIP service, and listen on http (no TLS — LAN-only).
+# Hostnames are `*.k8s.nixflix` so they sit next to the nixflix
+# `*.nixflix` aliases. Reachable at http://<service>.k8s.nixflix:30080
+# during the side-by-side phase (Traefik NodePort 30080).
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: prowlarr
+  namespace: servarr
+  labels:
+    app.kubernetes.io/name: prowlarr
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: prowlarr.k8s.nixflix
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: prowlarr
+                port:
+                  number: 9696
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: sonarr
+  namespace: servarr
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: sonarr.k8s.nixflix
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: sonarr
+                port:
+                  number: 8989
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: radarr
+  namespace: servarr
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: radarr.k8s.nixflix
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: radarr
+                port:
+                  number: 7878
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: lidarr
+  namespace: servarr
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: lidarr.k8s.nixflix
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: lidarr
+                port:
+                  number: 8686
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: readarr
+  namespace: servarr
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: readarr.k8s.nixflix
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: readarr
+                port:
+                  number: 8787
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: qbittorrent
+  namespace: servarr
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: qbittorrent.k8s.nixflix
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: qbittorrent
+                port:
+                  number: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: jellyfin
+  namespace: servarr
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: jellyfin.k8s.nixflix
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: jellyfin
+                port:
+                  number: 8096
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: jellyseerr
+  namespace: servarr
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: jellyseerr.k8s.nixflix
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: seerr
+                port:
+                  number: 5055
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: bazarr
+  namespace: servarr
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: bazarr.k8s.nixflix
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: bazarr
+                port:
+                  number: 6767
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: flaresolverr
+  namespace: servarr
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: flaresolverr.k8s.nixflix
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: flaresolverr
+                port:
+                  number: 8191
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: cleanuparr
+  namespace: servarr
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: cleanuparr.k8s.nixflix
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: cleanuparr
+                port:
+                  number: 11011

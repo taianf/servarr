@@ -1,0 +1,52 @@
+# Radarr — Movie automation
+# - Config + DB on host at /data/.state/radarr
+# - Reads/writes /data/media/movies
+# - Reads /data/downloads
+# - HTTP service on port 7878
+radarr:
+  enabled: true
+
+  env:
+    PUID: "1000"
+    PGID: "169"
+    TZ: "America/Sao_Paulo"
+    UMASK: "002"
+
+  service:
+    type: ClusterIP
+    port: 7878
+
+  persistence:
+    enabled: false
+
+  podSecurityContext:
+    fsGroup: 169
+    runAsUser: 1000
+    runAsGroup: 169
+
+  extraVolumes:
+    - name: config
+      hostPath:
+        path: /data/.state/radarr
+        type: DirectoryOrCreate
+    - name: data
+      hostPath:
+        path: /data
+        type: Directory
+    - name: tmp
+      emptyDir: {}
+
+  extraVolumeMounts:
+    - name: config
+      mountPath: /config
+    - name: data
+      mountPath: /data
+    - name: tmp
+      mountPath: /tmp
+
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      memory: 1Gi

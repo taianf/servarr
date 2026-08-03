@@ -1,0 +1,56 @@
+# Default-deny + intra-namespace allow for the servarr stack.
+# Single-node, single-namespace, LAN-trust: we don't need inter-ns
+# policies, just enough to keep a misconfigured app from talking
+# to kube-system or the host network.
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: servarr-default-deny
+  namespace: servarr
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: servarr-allow-intra-ns
+  namespace: servarr
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: servarr
+        - namespaceSelector:
+            # Traefik ingress lives in kube-system
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+  egress:
+    # DNS
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Anywhere else: LAN, internet (for indexers, metadata, etc.)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              # Block link-local and metadata services; we don't need them
+              - 169.254.0.0/16
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16

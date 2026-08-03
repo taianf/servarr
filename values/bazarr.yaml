@@ -1,0 +1,163 @@
+# Bazarr — subtitle manager
+# - Config on host at /data/.state/bazarr
+# - Reads /data/media (all libraries) to scan for subs
+# - HTTP service on port 6767
+bazarr:
+  enabled: true
+
+  env:
+    PUID: "1000"
+    PGID: "169"
+    TZ: "America/Sao_Paulo"
+
+  service:
+    type: ClusterIP
+    port: 6767
+
+  persistence:
+    enabled: false
+
+  podSecurityContext:
+    fsGroup: 169
+    runAsUser: 1000
+    runAsGroup: 169
+
+  extraVolumes:
+    - name: config
+      hostPath:
+        path: /data/.state/bazarr
+        type: DirectoryOrCreate
+    - name: data
+      hostPath:
+        path: /data
+        type: Directory
+    - name: tmp
+      emptyDir: {}
+
+  extraVolumeMounts:
+    - name: config
+      mountPath: /config
+    - name: data
+      mountPath: /data
+    - name: tmp
+      mountPath: /tmp
+
+  # Init container: pre-write Bazarr's config.yaml with Sonarr/Radarr
+  # API keys + pt-BR/en languages + addic7ed/podnapisi/opensubtitles
+  # providers. Mirrors the nixflix preStart behavior so the Bazarr
+  # pod never starts in a "missing API key" state.
+  # Idempotent: only rewrites when the integration patterns are missing
+  # (same logic as the nixflix preStart).
+  initContainers:
+    - name: write-config
+      image: alpine:3.20
+      command: ["/bin/sh", "-c"]
+      args:
+        - |
+          set -eu
+          apk add --no-cache bash >/dev/null
+
+          CONFIG_DIR=/config/config
+          CONFIG_FILE=$CONFIG_DIR/config.yaml
+          mkdir -p "$CONFIG_DIR"
+
+          BAZARR_API_KEY=$(cat /etc/secrets/bazarr/api_key)
+          SONARR_API_KEY=$(cat /etc/secrets/sonarr/api_key)
+          RADARR_API_KEY=$(cat /etc/secrets/radarr/api_key)
+
+          needs_rewrite=0
+          if [ ! -f "$CONFIG_FILE" ]; then
+            needs_rewrite=1
+          else
+            for pattern in '^  apikey: \S' '^  sonarr:' '^  radarr:' '^  enabled_providers:' 'pt-BR' 'addic7ed' 'podnapisi' 'opensubtitles'; do
+              if ! grep -qE "$pattern" "$CONFIG_FILE"; then
+                needs_rewrite=1
+                break
+              fi
+            done
+          fi
+
+          if [ "$needs_rewrite" -eq 1 ]; then
+            cat > "$CONFIG_FILE" << EOF
+          auth:
+            apikey: $BAZARR_API_KEY
+          general:
+            use_sonarr: true
+            use_radarr: true
+            minimum_score: 90
+            minimum_score_movie: 90
+            use_postprocessing: true
+            postprocessing_threshold: 90
+            enabled_providers:
+              - addic7ed
+              - podnapisi
+              - opensubtitles
+          sonarr:
+            ip: sonarr
+            port: 8989
+            base_url: /
+            ssl: false
+            apikey: $SONARR_API_KEY
+            full_update: Daily
+            full_update_hour: 3
+          radarr:
+            ip: radarr
+            port: 7878
+            base_url: /
+            ssl: false
+            apikey: $RADARR_API_KEY
+            full_update: Daily
+            full_update_hour: 3
+          addic7ed:
+            enabled: true
+          podnapisi:
+            enabled: true
+          opensubtitles:
+            enabled: true
+          languages:
+            enabled:
+              - pt-BR
+              - en
+            profiles:
+              - profileId: 1
+                name: pt-BR + en
+                cutoff: pt-BR
+                items:
+                  - language: pt-BR
+                    audio_exclude: false
+                    audio_only_include: false
+                    forced: false
+                    hi: false
+                  - language: en
+                    audio_exclude: false
+                    audio_only_include: false
+                    forced: false
+                    hi: false
+                mustContain: ""
+                mustNotContain: ""
+                originalFormat: null
+                tag: ""
+          EOF
+            echo "Bazarr config.yaml regenerated"
+          else
+            echo "Bazarr config.yaml already configured, leaving alone"
+          fi
+      volumeMounts:
+        - name: config
+          mountPath: /config
+        - name: bazarr-secrets
+          mountPath: /etc/secrets/bazarr
+          readOnly: true
+        - name: sonarr-secrets
+          mountPath: /etc/secrets/sonarr
+          readOnly: true
+        - name: radarr-secrets
+          mountPath: /etc/secrets/radarr
+          readOnly: true
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 512Mi

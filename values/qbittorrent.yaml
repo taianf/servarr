@@ -1,0 +1,57 @@
+# qBittorrent — torrent client
+# - Config on host at /data/.state/qbittorrent
+# - Downloads at /data/downloads (read/write — qBittorrent owns this)
+# - Web UI on port 8080; BT port 6881 (no NodePort, BT is local-only)
+qbittorrent:
+  enabled: true
+
+  env:
+    PUID: "1000"
+    PGID: "169"
+    TZ: "America/Sao_Paulo"
+    WEBUI_PORT: "8080"
+
+  service:
+    web:
+      type: ClusterIP
+      port: 8080
+    bt:
+      # ClusterIP: BT port is only reached from the *arr apps inside
+      # the cluster, no need to expose on the host.
+      type: ClusterIP
+      port: 6881
+
+  persistence:
+    enabled: false
+
+  podSecurityContext:
+    fsGroup: 169
+    runAsUser: 1000
+    runAsGroup: 169
+
+  extraVolumes:
+    - name: config
+      hostPath:
+        path: /data/.state/qbittorrent
+        type: DirectoryOrCreate
+    - name: data
+      hostPath:
+        path: /data
+        type: Directory
+    - name: tmp
+      emptyDir: {}
+
+  extraVolumeMounts:
+    - name: config
+      mountPath: /config
+    - name: data
+      mountPath: /data
+    - name: tmp
+      mountPath: /tmp
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 512Mi

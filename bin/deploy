@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# deploy: end-to-end bring-up. Decrypts secrets, renders the
+# k8s Secret manifest, applies the static manifests, runs helmfile,
+# then runs the wiring Jobs in dependency order.
+#
+# Usage:
+#   bin/deploy                     # full deploy
+#   bin/deploy --skip-helmfile     # only apply static manifests + Jobs
+#   bin/deploy --skip-jobs         # only apply manifests + helmfile
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$REPO_ROOT"
+
+SKIP_HELMFILE=0
+SKIP_JOBS=0
+for arg in "$@"; do
+  case "$arg" in
+    --skip-helmfile) SKIP_HELMFILE=1 ;;
+    --skip-jobs) SKIP_JOBS=1 ;;
+  esac
+done
+
+echo "[1/4] Rendering secrets..."
+bin/render-secrets
+
+echo "[2/4] Applying static manifests (namespace, network policy, PVCs, ingress)..."
+kubectl apply -f manifests/00-namespace.yaml
+kubectl apply -f manifests/10-networkpolicy.yaml
+kubectl apply -f manifests/20-pvc-recyclarr.yaml
+kubectl apply -f manifests/30-secrets.yaml
+kubectl apply -f manifests/40-readarr.yaml
+kubectl apply -f manifests/50-ingress.yaml
+kubectl apply -f manifests/jobs/00-rbac.yaml
+
+if [ "$SKIP_HELMFILE" -eq 0 ]; then
+  echo "[3/4] helmfile apply (chart-managed *arr apps)..."
+  helmfile apply
+else
+  echo "[3/4] Skipping helmfile (--skip-helmfile)"
+fi
+
+if [ "$SKIP_JOBS" -eq 0 ]; then
+  echo "[4/4] Running wiring Jobs in order..."
+  for j in recyclarr-bootstrap-config prowlarr-applications prowlarr-indexers sonarr-jellyfin-connect radarr-jellyfin-connect lidarr-jellyfin-connect bazarr-settings seerr-setup; do
+    bin/apply-jobs "$j" || echo "  Job $j failed — continuing"
+  done
+else
+  echo "[4/4] Skipping Jobs (--skip-jobs)"
+fi
+
+echo "Done. Run bin/status to verify."

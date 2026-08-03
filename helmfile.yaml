@@ -1,0 +1,110 @@
+# Servarr on k3s — single-node, side-by-side with nixflix.
+#
+# helmfile.yaml rendered by helmfile. Run with:
+#   helmfile apply
+#
+# Secrets are decrypted by bin/render-secrets (sops) into
+# secrets.dec.yaml (gitignored) before the first apply. The plain
+# k8s manifests (namespace, ingress, Jobs) are applied via
+# bin/deploy, not by helmfile.
+#
+# Releases: 10 chart-managed *arr apps from kubitodev/servarr 1.5.2.
+# Readarr (book automation) is shipped as a plain k8s Deployment
+# in manifests/40-readarr.yaml because the kubitodev chart doesn't
+# include it. Recyclarr (TRaSH guide sync) is shipped as a
+# CronJob in manifests/jobs/recyclarr-cronjob.yaml.
+#
+# Per-app values live in values/<app>.yaml and override chart
+# defaults: hostPath mounts (matching nixflix's /data layout),
+# PUID=1000, PGID=169 (host's media group), and resource limits.
+
+repositories:
+  - name: kubitodev
+    url: https://kubitodev.github.io/helm
+
+# Defaults applied to every release.
+helmDefaults:
+  args:
+    - --timeout=10m
+  createNamespace: false
+  # We don't enable verify — the chart doesn't ship a `verify`
+  # provenance, and we pin the version per release.
+  kubeVersion: ""
+
+# All releases land in the same namespace. The Namespace resource
+# itself is in manifests/00-namespace.yaml and applied separately.
+releases:
+  # ---- *arr apps (from kubitodev/servarr) ----
+
+  - name: prowlarr
+    chart: kubitodev/servarr
+    version: 1.5.2
+    namespace: servarr
+    values:
+      - ./values/prowlarr.yaml
+
+  - name: sonarr
+    chart: kubitodev/servarr
+    version: 1.5.2
+    namespace: servarr
+    values:
+      - ./values/sonarr.yaml
+
+  - name: radarr
+    chart: kubitodev/servarr
+    version: 1.5.2
+    namespace: servarr
+    values:
+      - ./values/radarr.yaml
+
+  - name: lidarr
+    chart: kubitodev/servarr
+    version: 1.5.2
+    namespace: servarr
+    values:
+      - ./values/lidarr.yaml
+
+  - name: qbittorrent
+    chart: kubitodev/servarr
+    version: 1.5.2
+    namespace: servarr
+    values:
+      - ./values/qbittorrent.yaml
+
+  - name: jellyfin
+    chart: kubitodev/servarr
+    version: 1.5.2
+    namespace: servarr
+    values:
+      - ./values/jellyfin.yaml
+
+  - name: jellyseerr
+    # Note: the chart uses `seerr:` as the top-level value key, not
+    # `jellyseerr:`. The Helm release name is `jellyseerr` for
+    # consistency with the rest of the stack.
+    chart: kubitodev/servarr
+    version: 1.5.2
+    namespace: servarr
+    values:
+      - ./values/jellyseerr.yaml
+
+  - name: bazarr
+    chart: kubitodev/servarr
+    version: 1.5.2
+    namespace: servarr
+    values:
+      - ./values/bazarr.yaml
+
+  - name: flaresolverr
+    chart: kubitodev/servarr
+    version: 1.5.2
+    namespace: servarr
+    values:
+      - ./values/flaresolverr.yaml
+
+  - name: cleanuparr
+    chart: kubitodev/servarr
+    version: 1.5.2
+    namespace: servarr
+    values:
+      - ./values/cleanuparr.yaml

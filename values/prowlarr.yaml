@@ -1,0 +1,51 @@
+# Prowlarr — indexer aggregator
+# - Config + DB on host at /data/.state/prowlarr
+# - Reads /data for nothing (Prowlarr doesn't touch media)
+# - HTTP service on port 9696
+prowlarr:
+  enabled: true
+
+  env:
+    PUID: "1000"
+    PGID: "169"
+    TZ: "America/Sao_Paulo"
+    UMASK: "002"
+
+  service:
+    type: ClusterIP
+    port: 9696
+
+  # Disable the chart's PVC; we use hostPath via extraVolumes.
+  persistence:
+    enabled: false
+
+  # LinuxServer.io Prowlarr listens on :9696 by default. The pod's
+  # /config holds the SQLite DB; the chart's PUID/PGID env runs
+  # the entrypoint as that UID/GID.
+  podSecurityContext:
+    fsGroup: 169
+    runAsUser: 1000
+    runAsGroup: 169
+
+  extraVolumes:
+    - name: config
+      hostPath:
+        path: /data/.state/prowlarr
+        type: DirectoryOrCreate
+    # Prowlarr needs a small /tmp it can write to. Use emptyDir
+    # so we don't depend on a host path for transient files.
+    - name: tmp
+      emptyDir: {}
+
+  extraVolumeMounts:
+    - name: config
+      mountPath: /config
+    - name: tmp
+      mountPath: /tmp
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 512Mi

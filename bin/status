@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# status: quick overview of the servarr stack.
+# - Pod readiness for every Deployment
+# - Job completion status for the last run
+# - Traefik ingress reachability
+# - PersistentVolume / PVC usage
+#
+# Usage:
+#   bin/status
+set -euo pipefail
+
+NAMESPACE="${NAMESPACE:-servarr}"
+
+echo "=== Pods ==="
+kubectl -n "$NAMESPACE" get pods -o wide
+echo
+
+echo "=== Services (ClusterIP) ==="
+kubectl -n "$NAMESPACE" get svc
+echo
+
+echo "=== Ingress ==="
+kubectl -n "$NAMESPACE" get ingress
+echo
+
+echo "=== Jobs (most recent 5) ==="
+kubectl -n "$NAMESPACE" get jobs --sort-by=.metadata.creationTimestamp | tail -n 6
+echo
+
+echo "=== PVCs ==="
+kubectl -n "$NAMESPACE" get pvc
+echo
+
+echo "=== Traefik reachability (NodePort 30080) ==="
+for host in prowlarr sonarr radarr lidarr readarr qbittorrent jellyfin jellyseerr bazarr flaresolverr cleanuparr; do
+  full="${host}.k8s.nixflix"
+  status=$(curl -sk -o /dev/null -w "%{http_code}" --max-time 5 "http://127.0.0.1:30080/" -H "Host: $full" 2>/dev/null || echo "ERR")
+  printf "  %-25s -> %s\n" "$full" "$status"
+done

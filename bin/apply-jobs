@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# apply-jobs: re-run a Job (or all Jobs) in the servarr namespace.
+# Kubernetes Jobs are immutable; this deletes the previous run
+# and recreates a fresh one from the same manifest.
+#
+# Usage:
+#   bin/apply-jobs                       # run all Jobs
+#   bin/apply-jobs prowlarr-applications # run one Job
+#   bin/apply-jobs seerr                # substring match
+set -euo pipefail
+
+JOBS_DIR="$(cd "$(dirname "$0")/../manifests/jobs" && pwd)"
+NAMESPACE="${NAMESPACE:-servarr}"
+
+run_job() {
+  local job_name="$1"
+  local manifest="$JOBS_DIR/${job_name}.yaml"
+
+  if [ ! -f "$manifest" ]; then
+    echo "ERROR: no manifest at $manifest" >&2
+    return 1
+  fi
+
+  # Delete any prior run of this Job. --ignore-not-found makes
+  # the first run (or a Job that was already cleaned) succeed.
+  kubectl delete job -n "$NAMESPACE" "$job_name" --ignore-not-found
+
+  # Apply the manifest. The Job spec is the source of truth; we
+  # don't pin metadata.generation or anything like that.
+  kubectl apply -n "$NAMESPACE" -f "$manifest"
+
+  echo "Waiting for Job $job_name..."
+  if kubectl wait --for=condition=complete --timeout=300s \
+      -n "$NAMESPACE" "job/$job_name" 2>/dev/null; then
+    echo "  OK"
+  else
+    echo "  Job did not complete cleanly — check: kubectl logs -n $NAMESPACE -l job-name=$job_name"
+    return 1
+  fi
+}
+
+if [ $# -eq 0 ]; then
+  # Run every *.yaml that has a top-level `kind: Job` (skip the
+  # rb, cronjob, configmap, etc.).
+  for f in "$JOBS_DIR"/*.yaml; do
+    if grep -q "^kind: Job$" "$f"; then
+      name=$(basename "$f" .yaml)
+      run_job "$name"
+    fi
+  done
+else
+  for arg in "$@"; do
+    found=0
+    for f in "$JOBS_DIR"/*.yaml; do
+      if [[ "$(basename "$f" .yaml)" == *"$arg"* ]]; then
+        run_job "$(basename "$f" .yaml)"
+        found=1
+      fi
+    done
+    [ "$found" -eq 0 ] && { echo "No Job matching '$arg'"; return 1; }
+  done
+fi

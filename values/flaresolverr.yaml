@@ -1,0 +1,20 @@
+# FlareSolverr — Cloudflare bypass proxy for indexers
+# Stateless. HTTP service on port 8191.
+flaresolverr:
+  enabled: true
+
+  service:
+    type: ClusterIP
+    port: 8191
+
+  podSecurityContext:
+    fsGroup: 1000
+    runAsUser: 1000
+    runAsGroup: 1000
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi

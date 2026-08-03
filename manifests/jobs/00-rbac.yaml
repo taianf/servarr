@@ -1,0 +1,32 @@
+# Shared service account + RBAC for the Jobs in jobs/*.yaml
+# Jobs only call *arr HTTP APIs and read k8s Secrets — no special RBAC
+# beyond read access to Secrets in this namespace.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: servarr-jobs
+  namespace: servarr
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: servarr-jobs-secret-reader
+  namespace: servarr
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: servarr-jobs-secret-reader
+  namespace: servarr
+subjects:
+  - kind: ServiceAccount
+    name: servarr-jobs
+    namespace: servarr
+roleRef:
+  kind: Role
+  name: servarr-jobs-secret-reader
+  apiGroup: rbac.authorization.k8s.io

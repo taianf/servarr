@@ -1,0 +1,173 @@
+# seerr-setup: connect Jellyseerr to Jellyfin, configure default
+# user settings, sync libraries, register Radarr/Sonarr instances.
+# Mirrors the nixflix seerr-* systemd oneshots in a single Job so
+# ordering is explicit and the call sequence can be eyeballed.
+# Re-runnable: each step is idempotent.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: seerr-setup
+  namespace: servarr
+  labels:
+    app.kubernetes.io/component: seerr-wiring
+spec:
+  backoffLimit: 3
+  template:
+    spec:
+      serviceAccountName: servarr-jobs
+      restartPolicy: OnFailure
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 169
+        fsGroup: 169
+      initContainers:
+        - name: wait-for-deps
+          image: alpine:3.20
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              apk add --no-cache curl >/dev/null
+              # Wait for Jellyseerr + Jellyfin + the *arr apps
+              wait_for() {
+                local name="$1" url="$2" key="$3"
+                echo "Waiting for $name..."
+                for i in $(seq 1 90); do
+                  if [ -z "$key" ]; then
+                    if curl -sf "$url" >/dev/null 2>&1; then return 0; fi
+                  else
+                    if curl -sf -H "X-Api-Key: $key" "$url" >/dev/null 2>&1; then return 0; fi
+                  fi
+                  [ "$i" -eq 90 ] && { echo "$name never came up ($url)"; return 1; }
+                  sleep 2
+                done
+              }
+
+              JELLYFIN_KEY=$(cat /etc/secrets/jellyfin/api_key)
+              SEERR_KEY=$(cat /etc/secrets/seerr/api_key)
+              SONARR_KEY=$(cat /etc/secrets/sonarr/api_key)
+              RADARR_KEY=$(cat /etc/secrets/radarr/api_key)
+
+              wait_for Jellyfin     "http://jellyfin:8096/System/Info/Public"             "$JELLYFIN_KEY"  || exit 1
+              wait_for Jellyseerr   "http://seerr:5055/api/v1/settings"                   "$SEERR_KEY"     || exit 1
+              wait_for Sonarr       "http://sonarr:8989/api/v3/system/status"             "$SONARR_KEY"    || exit 1
+              wait_for Radarr       "http://radarr:7878/api/v3/system/status"             "$RADARR_KEY"    || exit 1
+
+              echo "All seerr-setup dependencies ready"
+          volumeMounts:
+            - name: jellyfin-secrets
+              mountPath: /etc/secrets/jellyfin
+              readOnly: true
+            - name: seerr-secrets
+              mountPath: /etc/secrets/seerr
+              readOnly: true
+            - name: sonarr-secrets
+              mountPath: /etc/secrets/sonarr
+              readOnly: true
+            - name: radarr-secrets
+              mountPath: /etc/secrets/radarr
+              readOnly: true
+      containers:
+        - name: seerr-setup
+          image: alpine:3.20
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              apk add --no-cache curl jq >/dev/null
+
+              SEERR_URL="http://seerr:5055/api/v1"
+              SEERR_KEY=$(cat /etc/secrets/seerr/api_key)
+              JELLYFIN_KEY=$(cat /etc/secrets/jellyfin/api_key)
+              SONARR_KEY=$(cat /etc/secrets/sonarr/api_key)
+              RADARR_KEY=$(cat /etc/secrets/radarr/api_key)
+              H='-H "X-Api-Key: '"$SEERR_KEY"'" -H "Content-Type: application/json"'
+
+              # 1) Jellyfin connection
+              echo "[1/6] Configuring Jellyfin connection in Jellyseerr..."
+              curl -sf -X POST "$SEERR_URL/settings/jellyfin" -H "X-Api-Key: $SEERR_KEY" -H "Content-Type: application/json" \
+                -d '{
+                  "hostnameOrUrl": "http://jellyfin:8096",
+                  "apiKey": "'"$JELLYFIN_KEY"'",
+                  "useSsl": false,
+                  "activeLibraryType": "movie"
+                }' >/dev/null || echo "  (already configured)"
+
+              # 2) Default user settings (region, language)
+              echo "[2/6] Configuring default user settings..."
+              curl -sf -X POST "$SEERR_URL/settings/main" -H "X-Api-Key: $SEERR_KEY" -H "Content-Type: application/json" \
+                -d '{
+                  "locale": "pt-BR",
+                  "region": "BR",
+                  "originalLanguage": "pt"
+                }' >/dev/null || echo "  (already configured)"
+
+              # 3) Sonarr instance
+              echo "[3/6] Registering Sonarr instance..."
+              curl -sf -X POST "$SEERR_URL/settings/sonarr" -H "X-Api-Key: $SEERR_KEY" -H "Content-Type: application/json" \
+                -d '[{
+                  "name": "Sonarr",
+                  "hostnameOrUrl": "http://sonarr:8989",
+                  "apiKey": "'"$SONARR_KEY"'",
+                  "useSsl": false,
+                  "activeProfileId": 1,
+                  "isDefault": true,
+                  "is4k": false,
+                  "enableAutomaticSearch": true,
+                  "enableSeasonFolders": true,
+                  "rootFolder": "/data/media/tv"
+                }]' >/dev/null || echo "  (already configured)"
+
+              # 4) Radarr instance
+              echo "[4/6] Registering Radarr instance..."
+              curl -sf -X POST "$SEERR_URL/settings/radarr" -H "X-Api-Key: $SEERR_KEY" -H "Content-Type: application/json" \
+                -d '[{
+                  "name": "Radarr",
+                  "hostnameOrUrl": "http://radarr:7878",
+                  "apiKey": "'"$RADARR_KEY"'",
+                  "useSsl": false,
+                  "activeProfileId": 1,
+                  "isDefault": true,
+                  "is4k": false,
+                  "minimumAvailability": "released",
+                  "rootFolder": "/data/media/movies"
+                }]' >/dev/null || echo "  (already configured)"
+
+              # 5) Library sync (Jellyfin -> Jellyseerr)
+              echo "[5/6] Triggering Jellyfin library sync..."
+              curl -sf -X POST "$SEERR_URL/settings/jellyfin/library" -H "X-Api-Key: $SEERR_KEY" -H "Content-Type: application/json" \
+                -d '{}' >/dev/null || echo "  (already synced)"
+
+              # 6) Verify
+              echo "[6/6] Verifying Jellyseerr setup..."
+              curl -sf -H "X-Api-Key: $SEERR_KEY" "$SEERR_URL/settings/about" >/dev/null
+
+              echo "Jellyseerr setup complete"
+          env:
+            - name: HOME
+              value: /tmp
+          volumeMounts:
+            - name: jellyfin-secrets
+              mountPath: /etc/secrets/jellyfin
+              readOnly: true
+            - name: seerr-secrets
+              mountPath: /etc/secrets/seerr
+              readOnly: true
+            - name: sonarr-secrets
+              mountPath: /etc/secrets/sonarr
+              readOnly: true
+            - name: radarr-secrets
+              mountPath: /etc/secrets/radarr
+              readOnly: true
+      volumes:
+        - name: jellyfin-secrets
+          secret:
+            secretName: jellyfin-secrets
+        - name: seerr-secrets
+          secret:
+            secretName: seerr-secrets
+        - name: sonarr-secrets
+          secret:
+            secretName: sonarr-secrets
+        - name: radarr-secrets
+          secret:
+            secretName: radarr-secrets

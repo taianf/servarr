@@ -1,0 +1,17 @@
+# Persistent volume for Recyclarr's TRaSH guide config cache.
+# Recyclarr clones https://github.com/TRaSH-/Guides-Configs and re-runs
+# `recyclarr sync` daily. The PVC is local-path (k3s default) so it's
+# actually a hostPath at /var/lib/rancher/k3s/storage on the host.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: recyclarr-config
+  namespace: servarr
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 256Mi
+  # k3s ships local-path as the default StorageClass
+  storageClassName: local-path
