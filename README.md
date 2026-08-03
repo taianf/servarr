@@ -139,9 +139,17 @@ nixup                                # enables k3s, writes Traefik
 
 # 2) Wait for k3s to be ready.
 sudo k3s kubectl get nodes
-export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
-mkdir -p ~/.kube && sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/config
+
+# The k3s kubeconfig is created at /etc/rancher/k3s/k3s.yaml owned
+# by root. Copy it to ~/.kube/config and chown to your user so
+# kubectl (running unprivileged) can read it.
+mkdir -p ~/.kube
+sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/config
 sudo chown taian:users ~/.kube/config
+# Point kubectl at the user-owned copy. The bin/deploy script
+# does this automatically if KUBECONFIG is unset, but exporting
+# it here makes it stick for the rest of the session.
+export KUBECONFIG=$HOME/.kube/config
 
 # 3) In the servarr workspace: render secrets + deploy.
 cd /home/taian/workspaces/servarr

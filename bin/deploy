@@ -12,6 +12,16 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
+# Default KUBECONFIG to ~/.kube/config (the chowned copy the
+# README's bring-up steps create via 'sudo cp /etc/rancher/k3s/k3s.yaml
+# ~/.kube/config && sudo chown taian:users ~/.kube/config'). The
+# original at /etc/rancher/k3s/k3s.yaml is root-only, so
+# kubectl apply against the un-chowned path would hit 'permission denied'.
+# Respect any user-set KUBECONFIG first.
+if [ -z "${KUBECONFIG:-}" ] && [ -r "$HOME/.kube/config" ]; then
+  export KUBECONFIG="$HOME/.kube/config"
+fi
+
 SKIP_HELMFILE=0
 SKIP_JOBS=0
 for arg in "$@"; do
