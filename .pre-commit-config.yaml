@@ -1,0 +1,47 @@
+# pre-commit config — mirrors taianf/dotfiles' setup (with the
+# Nix-specific statix hook dropped, since this repo has no .nix
+# files). Installed locally with:
+#   prek install --overwrite
+# (per the dotfiles' first-time setup instructions; see
+# https://github.com/taianf/dotfiles for the global
+# core.hooksPath dance if you have a ggshield wrapper in the way).
+#
+# Note: the dotfiles repo declares ggshield as a hook and skips it
+# in CI; this repo doesn't have ggshield in `repos:` below, so a
+# `ci.skip: [ggshield]` here would be invalid (pre-commit.ci
+# rejects unknown skip IDs). If ggshield is added later, add it
+# back.
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      # The whole point of this PR: block direct commits to main
+      # so the workflow mirrors taianf/dotfiles' "never commit to
+      # main" rule. The pre-commit hook enforces it locally;
+      # branch protection on main is the GitHub-side enforcement.
+      - id: no-commit-to-branch
+        args: ["--branch", "main"]
+      - id: detect-private-key
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+
+  - repo: https://github.com/adrienverge/yamllint
+    rev: v1.38.0
+    hooks:
+      - id: yamllint
+        # sops-encrypted files are valid sops, not valid YAML
+        # outside of sops' own parser.
+        exclude: 'secrets\.enc\.yaml|\.sops\.yaml|\.opencode/'
+
+  - repo: https://github.com/pre-commit/mirrors-prettier
+    rev: v4.0.0-alpha.8
+    hooks:
+      - id: prettier
+        types_or: [yaml, markdown, json, gitignore]
+        exclude: '\.opencode/|secrets\.enc\.yaml'
+
+  - repo: https://github.com/igorshubovych/markdownlint-cli
+    rev: v0.49.1
+    hooks:
+      - id: markdownlint
+        exclude: '\.opencode/'

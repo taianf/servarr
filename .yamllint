@@ -1,0 +1,24 @@
+# yamllint config — mirrors the dotfiles repo's pre-commit yamllint
+# style so CI lint output is consistent across both repos. Excludes
+# the encrypted secrets file and the sops config (which is mostly
+# age recipient lines, not YAML semantics).
+extends: default
+
+ignore: |
+  secrets.enc.yaml
+  .sops.yaml
+  .opencode/
+
+rules:
+  # Default line-length is 80, way too tight for the *arr values
+  # files (which routinely have 100+ char URLs / image refs).
+  line-length:
+    max: 120
+    level: warning
+  # Allow `no` as a boolean in this stack (helm chart values use
+  # it a lot).
+  truthy:
+    allowed-values: ['true', 'false', 'yes', 'no']
+  # Don't fail on the `---` document separator at the top of files
+  # (k8s manifests commonly start with it as a comment).
+  document-start: disable

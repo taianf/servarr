@@ -28,7 +28,7 @@ flipped on so the `:30080` port suffix drops off the URLs.
 
 ## Repository layout
 
-```
+```text
 servarr/
 ├── README.md
 ├── .sops.yaml                          # sops age-key rules
@@ -120,19 +120,19 @@ bin/status
 
 During the side-by-side phase, the *arr UIs are reachable at:
 
-| Service       | URL                                                  |
-| ------------- | ---------------------------------------------------- |
-| Sonarr        | http://sonarr.k8s.nixflix:30080                      |
-| Radarr        | http://radarr.k8s.nixflix:30080                      |
-| Lidarr        | http://lidarr.k8s.nixflix:30080                      |
-| Readarr       | http://readarr.k8s.nixflix:30080                     |
-| Prowlarr      | http://prowlarr.k8s.nixflix:30080                    |
-| qBittorrent   | http://qbittorrent.k8s.nixflix:30080                 |
-| Jellyfin      | http://jellyfin.k8s.nixflix:30080                    |
-| Jellyseerr    | http://jellyseerr.k8s.nixflix:30080                  |
-| Bazarr        | http://bazarr.k8s.nixflix:30080                      |
-| FlareSolverr  | http://flaresolverr.k8s.nixflix:30080                |
-| Cleanuparr    | http://cleanuparr.k8s.nixflix:30080                  |
+| Service      | URL                                   |
+| ------------ | ------------------------------------- |
+| Sonarr       | http://sonarr.k8s.nixflix:30080       |
+| Radarr       | http://radarr.k8s.nixflix:30080       |
+| Lidarr       | http://lidarr.k8s.nixflix:30080       |
+| Readarr      | http://readarr.k8s.nixflix:30080      |
+| Prowlarr     | http://prowlarr.k8s.nixflix:30080     |
+| qBittorrent  | http://qbittorrent.k8s.nixflix:30080  |
+| Jellyfin     | http://jellyfin.k8s.nixflix:30080     |
+| Jellyseerr   | http://jellyseerr.k8s.nixflix:30080   |
+| Bazarr       | http://bazarr.k8s.nixflix:30080       |
+| FlareSolverr | http://flaresolverr.k8s.nixflix:30080 |
+| Cleanuparr   | http://cleanuparr.k8s.nixflix:30080   |
 
 After nixflix is removed and `services.k3s-servarr.ingressForward = true`
 is enabled, the `:30080` port suffix drops off and the URLs are
