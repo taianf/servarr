@@ -23,4 +23,4 @@ jobs:
         # `statix check` step — no duplicated config.
         uses: j178/prek-action@v1
         with:
-          args: --all-files --skip ggshield
+          args: --all-files

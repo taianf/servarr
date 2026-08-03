@@ -5,9 +5,12 @@
 # (per the dotfiles' first-time setup instructions; see
 # https://github.com/taianf/dotfiles for the global
 # core.hooksPath dance if you have a ggshield wrapper in the way).
-ci:
-  skip: [ggshield]
-
+#
+# Note: the dotfiles repo declares ggshield as a hook and skips it
+# in CI; this repo doesn't have ggshield in `repos:` below, so a
+# `ci.skip: [ggshield]` here would be invalid (pre-commit.ci
+# rejects unknown skip IDs). If ggshield is added later, add it
+# back.
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
