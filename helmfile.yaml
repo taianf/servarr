@@ -27,9 +27,8 @@ helmDefaults:
   args:
     - --timeout=10m
   createNamespace: false
-  # We don't enable verify — the chart doesn't ship a `verify`
-  # provenance, and we pin the version per release.
-  kubeVersion: ""
+  # We don't enable verify — the chart doesn't ship a verify
+  # provenance. Each release pins its version explicitly.
 
 # All releases land in the same namespace. The Namespace resource
 # itself is in manifests/00-namespace.yaml and applied separately.
