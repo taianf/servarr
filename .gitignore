@@ -1,6 +1,7 @@
 # Build artifacts
 result/
 dist/
+node_modules/
 
 # Decrypted secrets
 secrets.dec.yaml
