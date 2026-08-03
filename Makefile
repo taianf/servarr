@@ -16,14 +16,24 @@ help: ## Show this help (default target)
 
 # ---- Setup ----
 
-.PHONY: setup
-setup: ## Install prereqs (sops, helmfile, kubectl, helm, uv) via nix profile
-	@echo "Installing prereqs via nix profile..."
-	nix profile install nixpkgs#sops nixpkgs#helmfile nixpkgs#kubectl nixpkgs#helm nixpkgs#uv nixpkgs#yq
-	@echo ""
-	@echo "Done. For reproducible installs, add these to home/packages.nix in"
-	@echo "the dotfiles repo so 'nixup' manages them. helm and kubectl are"
-	@echo "already there; add sops, helmfile, uv, yq (and ssh-to-age) as needed."
+.PHONY: setup check-prereqs
+setup check-prereqs: ## Verify prereqs are on PATH (prints what's missing)
+	@missing=0; \
+	for tool in sops helmfile kubectl helm uv make; do \
+	  if command -v $$tool >/dev/null 2>&1; then \
+	    printf "  \033[32m✓\033[0m  %s\n" $$tool; \
+	  else \
+	    printf "  \033[31m✗\033[0m  %s (missing)\n" $$tool; \
+	    missing=1; \
+	  fi; \
+	done; \
+	if [ $$missing -ne 0 ]; then \
+	  echo ""; \
+	  echo "Add the missing tools to home/packages.nix in the dotfiles repo"; \
+	  echo "(e.g. pkgs.sops, pkgs.kubectl, pkgs.uv, pkgs.gnumake) and run nixup."; \
+	  echo "Helmfile is on PATH as 'helmfile' from pkgs.helmfile."; \
+	  exit 1; \
+	fi
 
 # ---- Secrets ----
 
