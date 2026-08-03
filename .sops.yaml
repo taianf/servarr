@@ -11,4 +11,4 @@ creation_rules:
   - path_regex: secrets\.enc\.yaml$
     key_groups:
       - age:
-          - age1_replace_me_with_age1xxx_from_ssh_to_age
+          - age1fccdw8xgfrl682rupj446z4qqlffq73z4yj498grrr4u39mtwu5q4387w3
