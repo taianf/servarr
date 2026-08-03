@@ -27,9 +27,12 @@ setup: ## Install prereqs (sops, helmfile, kubectl, helm, uv) via nix profile
 
 # ---- Secrets ----
 
-.PHONY: secrets render-secrets
-secrets: render-secrets ## Decrypt secrets.enc.yaml → secrets.dec.yaml + k8s Secret manifest
-render-secrets:
+.PHONY: edit-secrets secrets render-secrets
+edit-secrets: ## Open secrets.enc.yaml in $$EDITOR (sops decrypts, re-encrypts on save)
+	sops secrets.enc.yaml
+
+secrets: render-secrets ## Alias for `render-secrets`
+render-secrets: ## Decrypt secrets.enc.yaml → secrets.dec.yaml + k8s Secret manifest
 	./bin/render-secrets
 
 # ---- Bring-up / tear-down ----
