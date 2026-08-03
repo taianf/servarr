@@ -1,0 +1,15 @@
+# markdownlint config — disable rules that fight with our
+# project layout:
+#   MD013 (line-length): markdown tables with long URLs blow
+#     past 80 chars; tightening the table is worse than the rule.
+#   MD034 (no-bare-urls): the service/URL table in the README
+#     contains bare http://... URLs that MD034 would reject.
+#     Wrapping each URL in angle brackets hurts table readability.
+#   MD040 (fenced-code-language): tree-style code blocks (the
+#     "Repository layout" diagram) have no meaningful language;
+#     defaulting to "text" is enough.
+default: true
+
+MD013: false
+MD034: false
+MD040: false
