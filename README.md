@@ -93,6 +93,30 @@ The `hostPath` layout assumes the same `/data` tree as nixflix:
 (host's `media` group GID) on every *arr pod so files are
 read/writable by both stacks.
 
+## Common tasks
+
+The `Makefile` wraps `bin/`, `helmfile`, and `kubectl` in a self-documenting interface. Run `make` (or `make help`) to see every target.
+
+| Target                       | What it does                                                                                  |
+| ---------------------------- | --------------------------------------------------------------------------------------------- |
+| `make setup`                 | Install prereqs (`sops`, `helmfile`, `kubectl`, `helm`, `uv`, `yq`) via `nix profile install` |
+| `make secrets`               | Decrypt `secrets.enc.yaml` → `secrets.dec.yaml` + `manifests/30-secrets.yaml`                 |
+| `make start` / `make deploy` | End-to-end bring-up: secrets + static manifests + helmfile + wiring Jobs                      |
+| `make stop`                  | `helmfile destroy` (data in `/data` is preserved)                                             |
+| `make apply`                 | Apply all chart releases (without re-running Jobs)                                            |
+| `make diff`                  | Show what helmfile would change                                                               |
+| `make apply-jobs`            | Re-run all wiring Jobs (idempotent)                                                           |
+| `make apply-job JOB=…`       | Re-run one Job (substring match)                                                              |
+| `make status`                | Cluster overview (pods, services, ingress, jobs, PVCs, reachability)                          |
+| `make logs`                  | Tail logs from every pod in the namespace                                                     |
+| `make restart APP=…`         | Rollout-restart one Deployment                                                                |
+| `make lint`                  | `prek run --all-files` + `yamllint` (CI parity)                                               |
+| `make format`                | Auto-fix via prek                                                                             |
+| `make clean`                 | Delete the `servarr` namespace + rendered secrets                                             |
+| `make nuke`                  | `clean` + `helmfile destroy` (full teardown)                                                  |
+
+Variables: `APP`, `JOB`, `NAMESPACE` — override on the command line, e.g. `make apply-job JOB=prowlarr-applications`.
+
 ## Bring-up
 
 ```bash
@@ -109,11 +133,12 @@ sudo chown taian:users ~/.kube/config
 
 # 3) In the servarr workspace: render secrets + deploy.
 cd /home/taian/workspaces/servarr
-bin/deploy                           # sops decrypt + apply static
-                                     # manifests + helmfile + Jobs
+make start                           # or: bin/deploy (sops decrypt +
+                                     # apply static manifests + helmfile +
+                                     # Jobs)
 
 # 4) Verify.
-bin/status
+make status                          # or: bin/status
 ```
 
 ## URL map
