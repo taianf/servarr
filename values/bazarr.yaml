@@ -93,7 +93,7 @@ bazarr:
               - podnapisi
               - opensubtitles
           sonarr:
-            ip: sonarr
+            ip: servarr-sonarr
             port: 8989
             base_url: /
             ssl: false
@@ -101,7 +101,7 @@ bazarr:
             full_update: Daily
             full_update_hour: 3
           radarr:
-            ip: radarr
+            ip: servarr-radarr
             port: 7878
             base_url: /
             ssl: false

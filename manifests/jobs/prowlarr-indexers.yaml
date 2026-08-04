@@ -27,7 +27,7 @@ spec:
           args:
             - |
               apk add --no-cache curl >/dev/null
-              PROWLARR_URL="http://prowlarr:9696"
+              PROWLARR_URL="http://servarr-prowlarr:9696"
               API_KEY=$(cat /etc/secrets/prowlarr/api_key)
               for i in $(seq 1 60); do
                 if curl -sf -H "X-Api-Key: $API_KEY" "$PROWLARR_URL/api/v1/system/status" >/dev/null; then
@@ -50,7 +50,7 @@ spec:
               set -eu
               apk add --no-cache curl jq >/dev/null
 
-              PROWLARR_URL="http://prowlarr:9696"
+              PROWLARR_URL="http://servarr-prowlarr:9696"
               API_KEY=$(cat /etc/secrets/prowlarr/api_key)
 
               # Indexer list (kept in sync with the nixflix NixOS config).

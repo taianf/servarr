@@ -28,8 +28,8 @@ spec:
               set -eu
               apk add --no-cache curl jq >/dev/null
 
-              SONARR_URL="http://sonarr:8989"
-              JELLYFIN_URL="http://jellyfin:8096"
+              SONARR_URL="http://servarr-sonarr:8989"
+              JELLYFIN_URL="http://servarr-jellyfin:8096"
 
               SONARR_API_KEY=$(cat /etc/secrets/sonarr/api_key)
               JELLYFIN_API_KEY=$(cat /etc/secrets/jellyfin/api_key)
