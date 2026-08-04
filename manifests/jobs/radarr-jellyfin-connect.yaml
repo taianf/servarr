@@ -27,7 +27,7 @@ spec:
               set -eu
               apk add --no-cache curl jq >/dev/null
 
-              RADARR_URL="http://radarr:7878"
+              RADARR_URL="http://servarr-radarr:7878"
               RADARR_API_KEY=$(cat /etc/secrets/radarr/api_key)
               JELLYFIN_API_KEY=$(cat /etc/secrets/jellyfin/api_key)
 

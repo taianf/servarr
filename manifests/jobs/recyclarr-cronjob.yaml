@@ -88,7 +88,7 @@ data:
     # the next `recyclarr sync` will pick up the changes.
     sonarr:
       - name: Sonarr
-        base_url: http://sonarr:8989
+        base_url: http://servarr-sonarr:8989
         api_key: __SONARR_API_KEY__
         quality_definition:
           type: series
@@ -111,7 +111,7 @@ data:
                 score: 0
     radarr:
       - name: Radarr
-        base_url: http://radarr:7878
+        base_url: http://servarr-radarr:7878
         api_key: __RADARR_API_KEY__
         quality_definition:
           type: movie

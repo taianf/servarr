@@ -29,7 +29,7 @@ spec:
               set -eu
               apk add --no-cache curl jq >/dev/null
 
-              PROWLARR_URL="http://prowlarr:9696"
+              PROWLARR_URL="http://servarr-prowlarr:9696"
               API_KEY=$(cat /etc/secrets/prowlarr/api_key)
 
               # Wait for Prowlarr API
@@ -78,10 +78,10 @@ spec:
                 fi
               }
 
-              add_app "Sonarr"  "fullSync" "http://sonarr:8989"  "sonarr"
-              add_app "Radarr"  "fullSync" "http://radarr:7878"  "radarr"
-              add_app "Lidarr"  "fullSync" "http://lidarr:8686"  "lidarr"
-              add_app "Readarr" "fullSync" "http://readarr:8787" "readarr"
+              add_app "Sonarr"  "fullSync" "http://servarr-sonarr:8989"  "sonarr"
+              add_app "Radarr"  "fullSync" "http://servarr-radarr:7878"  "radarr"
+              add_app "Lidarr"  "fullSync" "http://servarr-lidarr:8686"  "lidarr"
+              add_app "Readarr" "fullSync" "http://readarr:8787"        "readarr"
 
               echo "Prowlarr applications configured"
           env:
