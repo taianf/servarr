@@ -33,6 +33,17 @@ repos:
         # outside of sops' own parser.
         exclude: 'secrets\.enc\.yaml|\.sops\.yaml|\.opencode/'
 
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.10.0.1
+    hooks:
+      - id: shellcheck
+        # Only run on the shell scripts in bin/. The 'x' flag
+        # sources external commands so #shellcheck disable=... is
+        # respected and the 'all' severity is the default.
+        name: shellcheck
+        files: ^bin/.*$
+        args: ["--severity=warning", "-x"]
+
   - repo: https://github.com/pre-commit/mirrors-prettier
     rev: v4.0.0-alpha.8
     hooks:
