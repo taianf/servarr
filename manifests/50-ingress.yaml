@@ -8,10 +8,10 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: prowlarr
+  name: servarr-prowlarr
   namespace: servarr
   labels:
-    app.kubernetes.io/name: prowlarr
+    app.kubernetes.io/name: servarr-prowlarr
 spec:
   ingressClassName: traefik
   rules:
@@ -22,14 +22,14 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: prowlarr
+                name: servarr-prowlarr
                 port:
                   number: 9696
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: sonarr
+  name: servarr-sonarr
   namespace: servarr
 spec:
   ingressClassName: traefik
@@ -41,14 +41,14 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: sonarr
+                name: servarr-sonarr
                 port:
                   number: 8989
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: radarr
+  name: servarr-radarr
   namespace: servarr
 spec:
   ingressClassName: traefik
@@ -60,14 +60,14 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: radarr
+                name: servarr-radarr
                 port:
                   number: 7878
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: lidarr
+  name: servarr-lidarr
   namespace: servarr
 spec:
   ingressClassName: traefik
@@ -79,7 +79,7 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: lidarr
+                name: servarr-lidarr
                 port:
                   number: 8686
 ---
@@ -105,7 +105,7 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: qbittorrent
+  name: servarr-qbittorrent-web
   namespace: servarr
 spec:
   ingressClassName: traefik
@@ -117,14 +117,14 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: qbittorrent
+                name: servarr-qbittorrent-web
                 port:
                   number: 8080
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: jellyfin
+  name: servarr-jellyfin
   namespace: servarr
 spec:
   ingressClassName: traefik
@@ -136,7 +136,7 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: jellyfin
+                name: servarr-jellyfin
                 port:
                   number: 8096
 ---
@@ -155,14 +155,14 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: seerr
+                name: servarr-seerr
                 port:
                   number: 5055
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: bazarr
+  name: servarr-bazarr
   namespace: servarr
 spec:
   ingressClassName: traefik
@@ -174,14 +174,14 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: bazarr
+                name: servarr-bazarr
                 port:
                   number: 6767
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: flaresolverr
+  name: servarr-flaresolverr
   namespace: servarr
 spec:
   ingressClassName: traefik
@@ -193,14 +193,14 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: flaresolverr
+                name: servarr-flaresolverr
                 port:
                   number: 8191
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: cleanuparr
+  name: servarr-cleanuparr
   namespace: servarr
 spec:
   ingressClassName: traefik
@@ -212,6 +212,6 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: cleanuparr
+                name: servarr-cleanuparr
                 port:
                   number: 11011

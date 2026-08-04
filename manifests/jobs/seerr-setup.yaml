@@ -47,10 +47,10 @@ spec:
               SONARR_KEY=$(cat /etc/secrets/sonarr/api_key)
               RADARR_KEY=$(cat /etc/secrets/radarr/api_key)
 
-              wait_for Jellyfin     "http://jellyfin:8096/System/Info/Public"             "$JELLYFIN_KEY"  || exit 1
-              wait_for Jellyseerr   "http://seerr:5055/api/v1/settings"                   "$SEERR_KEY"     || exit 1
-              wait_for Sonarr       "http://sonarr:8989/api/v3/system/status"             "$SONARR_KEY"    || exit 1
-              wait_for Radarr       "http://radarr:7878/api/v3/system/status"             "$RADARR_KEY"    || exit 1
+              wait_for Jellyfin     "http://servarr-jellyfin:8096/System/Info/Public"     "$JELLYFIN_KEY"  || exit 1
+              wait_for Jellyseerr   "http://servarr-seerr:5055/api/v1/settings"            "$SEERR_KEY"     || exit 1
+              wait_for Sonarr       "http://servarr-sonarr:8989/api/v3/system/status"      "$SONARR_KEY"    || exit 1
+              wait_for Radarr       "http://servarr-radarr:7878/api/v3/system/status"      "$RADARR_KEY"    || exit 1
 
               echo "All seerr-setup dependencies ready"
           volumeMounts:
@@ -75,7 +75,7 @@ spec:
               set -eu
               apk add --no-cache curl jq >/dev/null
 
-              SEERR_URL="http://seerr:5055/api/v1"
+              SEERR_URL="http://servarr-seerr:5055/api/v1"
               SEERR_KEY=$(cat /etc/secrets/seerr/api_key)
               JELLYFIN_KEY=$(cat /etc/secrets/jellyfin/api_key)
               SONARR_KEY=$(cat /etc/secrets/sonarr/api_key)
@@ -86,7 +86,7 @@ spec:
               echo "[1/6] Configuring Jellyfin connection in Jellyseerr..."
               curl -sf -X POST "$SEERR_URL/settings/jellyfin" -H "X-Api-Key: $SEERR_KEY" -H "Content-Type: application/json" \
                 -d '{
-                  "hostnameOrUrl": "http://jellyfin:8096",
+                  "hostnameOrUrl": "http://servarr-jellyfin:8096",
                   "apiKey": "'"$JELLYFIN_KEY"'",
                   "useSsl": false,
                   "activeLibraryType": "movie"
@@ -106,7 +106,7 @@ spec:
               curl -sf -X POST "$SEERR_URL/settings/sonarr" -H "X-Api-Key: $SEERR_KEY" -H "Content-Type: application/json" \
                 -d '[{
                   "name": "Sonarr",
-                  "hostnameOrUrl": "http://sonarr:8989",
+                  "hostnameOrUrl": "http://servarr-sonarr:8989",
                   "apiKey": "'"$SONARR_KEY"'",
                   "useSsl": false,
                   "activeProfileId": 1,
@@ -122,7 +122,7 @@ spec:
               curl -sf -X POST "$SEERR_URL/settings/radarr" -H "X-Api-Key: $SEERR_KEY" -H "Content-Type: application/json" \
                 -d '[{
                   "name": "Radarr",
-                  "hostnameOrUrl": "http://radarr:7878",
+                  "hostnameOrUrl": "http://servarr-radarr:7878",
                   "apiKey": "'"$RADARR_KEY"'",
                   "useSsl": false,
                   "activeProfileId": 1,
