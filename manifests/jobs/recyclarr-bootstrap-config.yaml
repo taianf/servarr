@@ -1,0 +1,129 @@
+# recyclarr.yml + one-shot Job that seeds it onto the recyclarr
+# PVC. Kept in its own file (rather than alongside the CronJob
+# in recyclarr-cronjob.yaml) so `bin/apply-jobs recyclarr-bootstrap-config`
+# works via the filename-substring matcher.
+---
+# recyclarr.yml — TRaSH guide config for Sonarr + Radarr.
+# Lives on the recyclarr-config PVC at /config/recyclarr.yml.
+# This ConfigMap is mounted as a one-shot init step to bootstrap
+# the PVC with the initial file. After the first sync, the user
+# can edit /config/recyclarr.yml directly (the PVC is mounted
+# read-write in the recyclarr container).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: recyclarr-bootstrap-config
+  namespace: servarr
+data:
+  recyclarr.yml: |
+    # TRaSH Guides configuration. Docs: https://trash-guides.info
+    # This file is mounted into the recyclarr container at
+    # /config/recyclarr.yml. Edit it on the host via the PVC and
+    # the next `recyclarr sync` will pick up the changes.
+    sonarr:
+      - name: Sonarr
+        base_url: http://servarr-sonarr:8989
+        api_key: __SONARR_API_KEY__
+        quality_definition:
+          type: series
+        quality_profiles:
+          - name: 1080p
+            upgrade:
+              allowed: true
+              until_quality: Bluray-1080p
+              until_score: 100
+            min_format_score: 100
+        custom_formats:
+          # Pull TRaSH custom formats by ID. See
+          # https://trash-guides.info/Sonarr/sonarr-collection-of-custom-formats/
+          - trash_ids:
+              - 90a4a4b3558a5bd6f96e2e1b38a5ca16  # BR-DISK
+              - 8ba3a2ace5d96f5c6b7c5ba2c92a85ec  # HD Bluray Tier 1
+              - 5706b3b3b1a2b4b3e1c4d6a7b5e9c0d1  # placeholder
+            assign_scores_to:
+              - name: 1080p
+                score: 0
+    radarr:
+      - name: Radarr
+        base_url: http://servarr-radarr:7878
+        api_key: __RADARR_API_KEY__
+        quality_definition:
+          type: movie
+        quality_profiles:
+          - name: 1080p
+            upgrade:
+              allowed: true
+              until_quality: Bluray-1080p
+              until_score: 100
+            min_format_score: 100
+        custom_formats:
+          - trash_ids:
+              - 90a4a4b3558a5bd6f96e2e1b38a5ca16
+              - 8ba3a2ace5d96f5c6b7c5ba2c92a85ec
+            assign_scores_to:
+              - name: 1080p
+                score: 0
+---
+# One-shot Job: copy the bootstrap ConfigMap onto the PVC so the
+# first `recyclarr sync` has a config to read. After the first
+# successful run, the user owns /config/recyclarr.yml on the PVC.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: recyclarr-bootstrap-config
+  namespace: servarr
+spec:
+  backoffLimit: 1
+  template:
+    spec:
+      serviceAccountName: servarr-jobs
+      restartPolicy: OnFailure
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 169
+        fsGroup: 169
+      containers:
+        - name: copy-config
+          image: alpine:3.20
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              apk add --no-cache envsubst >/dev/null 2>&1 || true
+              # The PVC may not be mounted yet — pull the placeholder
+              # values from k8s Secrets mounted at /tmp/secrets.
+              SONARR_API_KEY=$(cat /tmp/secrets/sonarr/api_key)
+              RADARR_API_KEY=$(cat /tmp/secrets/radarr/api_key)
+
+              # Render the config from the ConfigMap, substituting
+              # the API keys. We use sed here because alpine's
+              # envsubst might not be present.
+              sed -e "s|__SONARR_API_KEY__|$SONARR_API_KEY|g" \
+                  -e "s|__RADARR_API_KEY__|$RADARR_API_KEY|g" \
+                  /config-bootstrap/recyclarr.yml > /config/recyclarr.yml
+
+              echo "recyclarr.yml bootstrapped"
+          volumeMounts:
+            - name: recyclarr-config
+              mountPath: /config
+            - name: bootstrap
+              mountPath: /config-bootstrap
+            - name: sonarr-secrets
+              mountPath: /tmp/secrets/sonarr
+              readOnly: true
+            - name: radarr-secrets
+              mountPath: /tmp/secrets/radarr
+              readOnly: true
+      volumes:
+        - name: recyclarr-config
+          persistentVolumeClaim:
+            claimName: recyclarr-config
+        - name: bootstrap
+          configMap:
+            name: recyclarr-bootstrap-config
+        - name: sonarr-secrets
+          secret:
+            secretName: sonarr-secrets
+        - name: radarr-secrets
+          secret:
+            secretName: radarr-secrets

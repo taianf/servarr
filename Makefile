@@ -94,15 +94,18 @@ pods: ## List pods in the namespace
 
 # ---- Dev workflow ----
 
-.PHONY: lint format validate
+.PHONY: lint format validate check
 lint: ## Run prek + yamllint (CI parity)
 	prek run --all-files
 	yamllint --config-file .yamllint .
 
-format: ## Auto-fix via prek (prettier, end-of-file, etc.)
+format: ## Auto-fix via prek
 	prek run --all-files
 
 validate: build ## Render charts to validate templates (alias for `make build`)
+
+check: ## Run all pre-commit/push checks (shellcheck, prek, helmfile build)
+	./bin/check
 
 # ---- Cleanup ----
 

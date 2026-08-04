@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# check — pre-commit + pre-push validation. Runs every check we have
+# so a single `make check` (or `bin/check`) catches everything before
+# you commit or push. Designed to fail loud and exit non-zero on
+# the first failure (no partial-success noise).
+#
+# Checks (in order):
+#   1. shellcheck on bin/                              (script correctness)
+#   2. prek run --all-files                            (yamllint, prettier, markdownlint, etc.)
+#   3. helmfile build                                  (validates chart templates + values)
+#
+# Usage:
+#   bin/check                          # run everything
+#   bin/check shellcheck                # one check
+#   bin/check prek                      # one check
+#   bin/check helmfile                  # one check
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$REPO_ROOT"
+
+filter="${1:-all}"
+
+run_shellcheck() {
+  echo "==> shellcheck on bin/"
+  nix shell nixpkgs#shellcheck --command shellcheck -x bin/*
+}
+
+run_prek() {
+  echo "==> prek run --all-files"
+  uv run --with prek --quiet -- prek run --all-files
+}
+
+run_helmfile() {
+  echo "==> helmfile build (template validation)"
+  helmfile build >/dev/null
+}
+
+case "$filter" in
+  all|"")
+    run_shellcheck
+    run_prek
+    run_helmfile
+    ;;
+  shellcheck) run_shellcheck ;;
+  prek)       run_prek ;;
+  helmfile)   run_helmfile ;;
+  *)
+    echo "Unknown check: $filter" >&2
+    echo "Valid: all, shellcheck, prek, helmfile" >&2
+    exit 2
+    ;;
+esac
+
+echo
+echo "All checks passed."
