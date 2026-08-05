@@ -3,6 +3,10 @@
 # - Reads /data for nothing (Prowlarr doesn't touch media)
 # - HTTP service on port 9696
 prowlarr:
+  image:
+    repository: lscr.io/linuxserver/prowlarr
+    tag: latest
+    pullPolicy: Always
   enabled: true
 
   env:
@@ -17,29 +21,23 @@ prowlarr:
 
   # Disable the chart's PVC; we use hostPath via extraVolumes.
   persistence:
-    enabled: false
+    # Use our pre-created hostPath-backed PVC for /config.
+    enabled: true
+    existingClaim: servarr-prowlarr-config
 
   # LinuxServer.io Prowlarr listens on :9696 by default. The pod's
   # /config holds the SQLite DB; the chart's PUID/PGID env runs
   # the entrypoint as that UID/GID.
   podSecurityContext:
     fsGroup: 169
-    runAsUser: 1000
-    runAsGroup: 169
 
   extraVolumes:
-    - name: config
-      hostPath:
-        path: /data/.state/prowlarr
-        type: DirectoryOrCreate
     # Prowlarr needs a small /tmp it can write to. Use emptyDir
     # so we don't depend on a host path for transient files.
     - name: tmp
       emptyDir: {}
 
   extraVolumeMounts:
-    - name: config
-      mountPath: /config
     - name: tmp
       mountPath: /tmp
 

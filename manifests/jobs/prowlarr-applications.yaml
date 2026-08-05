@@ -3,6 +3,12 @@
 # the indexer config into each *arr app on its own.
 # Idempotent: if the app entry already exists, Prowlarr returns it
 # and we leave it alone.
+#
+# API keys are AUTO-WIRED: we read each *arr's auto-generated
+# ApiKey from /config/config.xml (mounted as a hostPath volume),
+# not from sops. sops only carries passwords (admin creds).
+# The prowlarr-secrets Secret still exists for the prowlarr API
+# key, since prowlarr itself is part of the wiring graph.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -17,8 +23,8 @@ spec:
       serviceAccountName: servarr-jobs
       restartPolicy: OnFailure
       securityContext:
-        runAsUser: 1000
-        runAsGroup: 169
+        # Jobs are short-lived; run as image default (root) so
+        # apk can install curl + jq.
         fsGroup: 169
       containers:
         - name: prowlarr-applications
@@ -29,12 +35,23 @@ spec:
               set -eu
               apk add --no-cache curl jq >/dev/null
 
+              # Helper: read the ApiKey from a LinuxServer.io
+              # *arr's config.xml. Returns 1 + warns if the file
+              # isn't there yet (first boot) or doesn't have an
+              # ApiKey line (still in startup wizard).
+              get_arr_key() {
+                local cfg="$1"
+                [ -f "$cfg" ] || { echo "  (no config at $cfg yet)"; return 1; }
+                grep -oP 'ApiKey>[^<]+' "$cfg" | head -1 | sed 's/ApiKey>//'
+              }
+
               PROWLARR_URL="http://servarr-prowlarr:9696"
-              API_KEY=$(cat /etc/secrets/prowlarr/api_key)
+              PROWLARR_KEY=$(get_arr_key /config/prowlarr/config.xml)
+              [ -z "$PROWLARR_KEY" ] && { echo "Prowlarr not ready (no ApiKey in /config/prowlarr/config.xml)"; exit 1; }
 
               # Wait for Prowlarr API
               for i in $(seq 1 60); do
-                if curl -sf -H "X-Api-Key: $API_KEY" "$PROWLARR_URL/api/v1/system/status" >/dev/null; then
+                if curl -sf -H "X-Api-Key: $PROWLARR_KEY" "$PROWLARR_URL/api/v1/system/status" >/dev/null; then
                   break
                 fi
                 [ "$i" -eq 60 ] && { echo "Prowlarr API never came up"; exit 1; }
@@ -45,77 +62,93 @@ spec:
                 local name="$1"
                 local sync_level="$2"  # "fullSync" enables auto-sync
                 local base_url="$3"
-                local api_key_secret="$4"
-                local app_api_key
+                local cfg="$4"   # path to the *arr's config.xml
+                local arr_key
 
-                app_api_key=$(cat "/etc/secrets/$api_key_secret/api_key")
+                # Optional skip: if the *arr hasn't generated an
+                # ApiKey yet (still in startup wizard), skip it.
+                arr_key=$(get_arr_key "$cfg")
+                if [ -z "$arr_key" ]; then
+                  echo "Skipping Prowlarr application '$name' (no ApiKey in $cfg)"
+                  return 0
+                fi
 
                 # Prowlarr Applications schema: name, syncLevel, baseUrl, apiKey
                 local payload
                 payload=$(jq -n \
                   --arg name "$name" \
                   --arg baseUrl "$base_url" \
-                  --arg apiKey "$app_api_key" \
+                  --arg apiKey "$arr_key" \
                   --arg syncLevel "$sync_level" \
                   '{name: $name, syncLevel: $syncLevel, baseUrl: $baseUrl, apiKey: $apiKey, implementation: "Generic", configContract: "GenericApplicationSettings", fields: []}')
 
-                # Check if already exists
                 local existing_id
-                existing_id=$(curl -sf -H "X-Api-Key: $API_KEY" \
+                existing_id=$(curl -sf -H "X-Api-Key: $PROWLARR_KEY" \
                   "$PROWLARR_URL/api/v1/applications" \
                   | jq -r --arg n "$name" '.[] | select(.name == $n) | .id' | head -n1)
 
                 if [ -n "$existing_id" ] && [ "$existing_id" != "null" ]; then
                   echo "Prowlarr application '$name' already exists (id=$existing_id), updating"
-                  curl -sf -X PUT -H "X-Api-Key: $API_KEY" -H "Content-Type: application/json" \
+                  curl -sf -X PUT -H "X-Api-Key: $PROWLARR_KEY" -H "Content-Type: application/json" \
                     -d "$payload" \
                     "$PROWLARR_URL/api/v1/applications/$existing_id" >/dev/null
                 else
                   echo "Creating Prowlarr application '$name'"
-                  curl -sf -X POST -H "X-Api-Key: $API_KEY" -H "Content-Type: application/json" \
+                  curl -sf -X POST -H "X-Api-Key: $PROWLARR_KEY" -H "Content-Type: application/json" \
                     -d "$payload" \
                     "$PROWLARR_URL/api/v1/applications" >/dev/null
                 fi
               }
 
-              add_app "Sonarr"  "fullSync" "http://servarr-sonarr:8989"  "sonarr"
-              add_app "Radarr"  "fullSync" "http://servarr-radarr:7878"  "radarr"
-              add_app "Lidarr"  "fullSync" "http://servarr-lidarr:8686"  "lidarr"
-              add_app "Readarr" "fullSync" "http://readarr:8787"        "readarr"
+              add_app "Sonarr"  "fullSync" "http://servarr-sonarr:8989"  "/config/sonarr/config.xml"
+              add_app "Radarr"  "fullSync" "http://servarr-radarr:7878"  "/config/radarr/config.xml"
+              add_app "Lidarr"  "fullSync" "http://servarr-lidarr:8686"  "/config/lidarr/config.xml"
+              add_app "Readarr" "fullSync" "http://readarr:8787"        "/config/readarr/config.xml"
 
               echo "Prowlarr applications configured"
           env:
             - name: HOME
               value: /tmp
           volumeMounts:
-            - name: prowlarr-secrets
-              mountPath: /etc/secrets/prowlarr
+            # Each *arr's /config as a hostPath so the Job can
+            # auto-wire its ApiKey. Read-only; we only cat the
+            # file, never write. (K8s Secrets for these exist
+            # too — for the password/admin_password — but the
+            # api_key path is gone, the Jobs no longer mount them
+            # for that purpose.)
+            - name: prowlarr-config
+              mountPath: /config/prowlarr
               readOnly: true
-            - name: sonarr-secrets
-              mountPath: /etc/secrets/sonarr
+            - name: sonarr-config
+              mountPath: /config/sonarr
               readOnly: true
-            - name: radarr-secrets
-              mountPath: /etc/secrets/radarr
+            - name: radarr-config
+              mountPath: /config/radarr
               readOnly: true
-            - name: lidarr-secrets
-              mountPath: /etc/secrets/lidarr
+            - name: lidarr-config
+              mountPath: /config/lidarr
               readOnly: true
-            - name: readarr-secrets
-              mountPath: /etc/secrets/readarr
+            - name: readarr-config
+              mountPath: /config/readarr
               readOnly: true
       volumes:
-        - name: prowlarr-secrets
-          secret:
-            secretName: prowlarr-secrets
-        - name: sonarr-secrets
-          secret:
-            secretName: sonarr-secrets
-        - name: radarr-secrets
-          secret:
-            secretName: radarr-secrets
-        - name: lidarr-secrets
-          secret:
-            secretName: lidarr-secrets
-        - name: readarr-secrets
-          secret:
-            secretName: readarr-secrets
+        - name: prowlarr-config
+          hostPath:
+            path: /data/.state/prowlarr
+            type: Directory
+        - name: sonarr-config
+          hostPath:
+            path: /data/.state/sonarr
+            type: Directory
+        - name: radarr-config
+          hostPath:
+            path: /data/.state/radarr
+            type: Directory
+        - name: lidarr-config
+          hostPath:
+            path: /data/.state/lidarr
+            type: Directory
+        - name: readarr-config
+          hostPath:
+            path: /data/.state/readarr
+            type: Directory

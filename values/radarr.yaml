@@ -4,6 +4,10 @@
 # - Reads /data/downloads
 # - HTTP service on port 7878
 radarr:
+  image:
+    repository: lscr.io/linuxserver/radarr
+    tag: latest
+    pullPolicy: Always
   enabled: true
 
   env:
@@ -17,18 +21,14 @@ radarr:
     port: 7878
 
   persistence:
-    enabled: false
+    # Use our pre-created hostPath-backed PVC for /config.
+    enabled: true
+    existingClaim: servarr-radarr-config
 
   podSecurityContext:
     fsGroup: 169
-    runAsUser: 1000
-    runAsGroup: 169
 
   extraVolumes:
-    - name: config
-      hostPath:
-        path: /data/.state/radarr
-        type: DirectoryOrCreate
     - name: data
       hostPath:
         path: /data
@@ -37,8 +37,6 @@ radarr:
       emptyDir: {}
 
   extraVolumeMounts:
-    - name: config
-      mountPath: /config
     - name: data
       mountPath: /data
     - name: tmp
