@@ -183,6 +183,39 @@ After nixflix is removed and `services.k3s-servarr.ingressForward = true`
 is enabled, the `:30080` port suffix drops off and the URLs are
 the bare hostnames on port 80.
 
+## Live cluster inspection with k9s
+
+[`k9s`](https://k9scli.io/) is a terminal UI for kubectl — single-pane
+view of pods, jobs, services, ingresses, etc. with built-in
+log/exec/describe. Reads the same `KUBECONFIG` as kubectl, so no
+extra config needed after the [Bring-up](#bring-up) steps.
+
+```bash
+# After sudo nixup picks up pkgs.k9s:
+k9s
+```
+
+Useful entry points (press `:` to switch view, `?` for full help):
+
+| Key             | View                                   |
+| --------------- | -------------------------------------- |
+| `:po`           | Pods (namespace, status, restarts)     |
+| `:svc`          | Services + endpoints                   |
+| `:ns`           | Namespaces                             |
+| `:ing`          | Ingresses                              |
+| `:job`          | Jobs (the wiring Jobs)                 |
+| `pods-by-owner` | Pods grouped by Deployment/StatefulSet |
+| `shift+f`       | Port forward to a pod                  |
+| `l`             | Tail logs of selected pod              |
+| `s`             | Shell into selected pod                |
+| `d`             | Describe selected resource             |
+| `y`             | YAML view                              |
+| `n`             | Next namespace                         |
+
+Pair with the Make targets: use k9s for live state and
+follow-along debugging, use `make status` / `make logs` for
+one-shot queries from a script.
+
 ## Re-running wiring Jobs
 
 The Jobs are idempotent and safe to re-run:
