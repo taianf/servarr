@@ -31,7 +31,7 @@ spec:
         fsGroup: 169
       containers:
         - name: readarr
-          image: lscr.io/linuxserver/readarr:amd64-latest
+          image: lscr.io/linuxserver/readarr:nightly
           imagePullPolicy: IfNotPresent
           env:
             - name: PUID
