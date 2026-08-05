@@ -83,24 +83,28 @@ spec:
                 port:
                   number: 8686
 ---
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: readarr
-  namespace: servarr
-spec:
-  ingressClassName: traefik
-  rules:
-    - host: readarr.k8s.nixflix
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: readarr
-                port:
-                  number: 8787
+# Readarr Ingress — DISABLED alongside manifests/40-readarr.yaml
+# (upstream Readarr is pre-1.0 / unmaintained, see that file's
+# header). Uncomment when re-enabling readarr.
+#
+# apiVersion: networking.k8s.io/v1
+# kind: Ingress
+# metadata:
+#   name: readarr
+#   namespace: servarr
+# spec:
+#   ingressClassName: traefik
+#   rules:
+#     - host: readarr.k8s.nixflix
+#       http:
+#         paths:
+#           - path: /
+#             pathType: Prefix
+#             backend:
+#               service:
+#                 name: readarr
+#                 port:
+#                   number: 8787
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
