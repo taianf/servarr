@@ -3,6 +3,10 @@
 # - Reads/writes /data/media/music
 # - HTTP service on port 8686
 lidarr:
+  image:
+    repository: lscr.io/linuxserver/lidarr
+    tag: latest
+    pullPolicy: Always
   enabled: true
 
   env:
@@ -16,18 +20,14 @@ lidarr:
     port: 8686
 
   persistence:
-    enabled: false
+    # Use our pre-created hostPath-backed PVC for /config.
+    enabled: true
+    existingClaim: servarr-lidarr-config
 
   podSecurityContext:
     fsGroup: 169
-    runAsUser: 1000
-    runAsGroup: 169
 
   extraVolumes:
-    - name: config
-      hostPath:
-        path: /data/.state/lidarr
-        type: DirectoryOrCreate
     - name: data
       hostPath:
         path: /data
@@ -36,8 +36,6 @@ lidarr:
       emptyDir: {}
 
   extraVolumeMounts:
-    - name: config
-      mountPath: /config
     - name: data
       mountPath: /data
     - name: tmp

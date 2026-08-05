@@ -1,0 +1,206 @@
+# Static hostPath PVs + PVCs for the chart-managed *arr apps.
+# The kubitodev/servarr chart hardcodes the /config volume source
+# (PVC or emptyDir depending on persistence.enabled) and ignores
+# `extraVolumes`. `persistence.enabled: false` puts /config on
+# emptyDir, which loses the SQLite DB + API key on every pod
+# restart — and means our sops-secrets API key never matches what
+# Prowlarr/Sonarr/etc. is actually serving.
+#
+# Fix per app: pre-create a hostPath PV backed by /data/.state/<app>
+# and an empty PVC that binds to it, then set
+#   *.persistence.{config,etc}.existingClaim: <pvc>
+# in values/<app>.yaml. The chart sees the existing claim and
+# mounts it directly (no dynamic provisioning, no chart-managed
+# PVC). The *arr SQLite DBs and API keys now survive restarts, so
+# our sops-stored keys stay valid.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: servarr-prowlarr-config-pv
+  labels:
+    app.kubernetes.io/part-of: servarr
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: ""
+  hostPath:
+    path: /data/.state/prowlarr
+    type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: servarr-prowlarr-config
+  namespace: servarr
+  labels:
+    app.kubernetes.io/part-of: servarr
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: ""
+  resources:
+    requests:
+      storage: 1Gi
+  volumeName: servarr-prowlarr-config-pv
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: servarr-sonarr-config-pv
+  labels:
+    app.kubernetes.io/part-of: servarr
+spec:
+  capacity:
+    storage: 2Gi
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: ""
+  hostPath:
+    path: /data/.state/sonarr
+    type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: servarr-sonarr-config
+  namespace: servarr
+  labels:
+    app.kubernetes.io/part-of: servarr
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: ""
+  resources:
+    requests:
+      storage: 2Gi
+  volumeName: servarr-sonarr-config-pv
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: servarr-radarr-config-pv
+  labels:
+    app.kubernetes.io/part-of: servarr
+spec:
+  capacity:
+    storage: 2Gi
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: ""
+  hostPath:
+    path: /data/.state/radarr
+    type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: servarr-radarr-config
+  namespace: servarr
+  labels:
+    app.kubernetes.io/part-of: servarr
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: ""
+  resources:
+    requests:
+      storage: 2Gi
+  volumeName: servarr-radarr-config-pv
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: servarr-lidarr-config-pv
+  labels:
+    app.kubernetes.io/part-of: servarr
+spec:
+  capacity:
+    storage: 2Gi
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: ""
+  hostPath:
+    path: /data/.state/lidarr
+    type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: servarr-lidarr-config
+  namespace: servarr
+  labels:
+    app.kubernetes.io/part-of: servarr
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: ""
+  resources:
+    requests:
+      storage: 2Gi
+  volumeName: servarr-lidarr-config-pv
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: servarr-qbittorrent-config-pv
+  labels:
+    app.kubernetes.io/part-of: servarr
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: ""
+  hostPath:
+    path: /data/.state/qbittorrent
+    type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: servarr-qbittorrent-config
+  namespace: servarr
+  labels:
+    app.kubernetes.io/part-of: servarr
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: ""
+  resources:
+    requests:
+      storage: 1Gi
+  volumeName: servarr-qbittorrent-config-pv
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: servarr-seerr-config-pv
+  labels:
+    app.kubernetes.io/part-of: servarr
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: ""
+  hostPath:
+    path: /data/.state/seerr
+    type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: servarr-seerr-config
+  namespace: servarr
+  labels:
+    app.kubernetes.io/part-of: servarr
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: ""
+  resources:
+    requests:
+      storage: 1Gi
+  volumeName: servarr-seerr-config-pv

@@ -10,7 +10,9 @@ seerr:
     port: 5055
 
   persistence:
-    enabled: false
+    # Use our pre-created hostPath-backed PVC for /config.
+    enabled: true
+    existingClaim: servarr-seerr-config
 
   podSecurityContext:
     fsGroup: 169
@@ -18,16 +20,10 @@ seerr:
     runAsGroup: 169
 
   extraVolumes:
-    - name: config
-      hostPath:
-        path: /data/.state/seerr
-        type: DirectoryOrCreate
     - name: tmp
       emptyDir: {}
 
   extraVolumeMounts:
-    - name: config
-      mountPath: /config
     - name: tmp
       mountPath: /tmp
 
