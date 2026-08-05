@@ -11,7 +11,7 @@ bazarr:
   env:
     PUID: "1000"
     PGID: "169"
-    TZ: "America/Sao_Paulo"
+    TZ: "Europe/Lisbon"
 
   service:
     type: ClusterIP

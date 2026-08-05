@@ -7,7 +7,7 @@ cleanuparr:
   env:
     PUID: "1000"
     PGID: "169"
-    TZ: "America/Sao_Paulo"
+    TZ: "Europe/Lisbon"
     UMASK: "002"
     PORT: "11011"
 

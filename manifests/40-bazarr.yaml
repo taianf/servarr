@@ -143,7 +143,7 @@ spec:
             - name: PGID
               value: "169"
             - name: TZ
-              value: America/Sao_Paulo
+              value: Europe/Lisbon
           ports:
             - name: http
               containerPort: 6767
