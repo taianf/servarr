@@ -15,8 +15,6 @@ spec:
       serviceAccountName: servarr-jobs
       restartPolicy: OnFailure
       securityContext:
-        runAsUser: 1000
-        runAsGroup: 169
         fsGroup: 169
       containers:
         - name: lidarr-jellyfin-connect
@@ -28,8 +26,14 @@ spec:
               apk add --no-cache curl jq >/dev/null
 
               LIDARR_URL="http://servarr-lidarr:8686"
-              LIDARR_API_KEY=$(cat /etc/secrets/lidarr/api_key)
-              JELLYFIN_API_KEY=$(cat /etc/secrets/jellyfin/api_key)
+              LIDARR_KEY=""
+              if [ -f /config/lidarr/config.xml ]; then
+                LIDARR_KEY=$(grep -oP 'ApiKey>[^<]+' /config/lidarr/config.xml | head -1 | sed 's/ApiKey>//')
+              fi
+              JELLYFIN_KEY=""
+              if [ -f /config/jellyfin/system.xml ]; then
+                JELLYFIN_KEY=$(grep -oP '<ApiKey>[^<]+' /config/jellyfin/system.xml | head -1 | sed 's/<ApiKey>//')
+              fi
 
               for i in $(seq 1 60); do
                 if curl -sf -H "X-Api-Key: $LIDARR_API_KEY" \
@@ -56,7 +60,7 @@ spec:
               NOTIFICATION=$(echo "$SCHEMA" | jq \
                 --arg host "jellyfin" \
                 --argjson port 8096 \
-                --arg apiKey "$JELLYFIN_API_KEY" \
+                --arg apiKey "$JELLYFIN_KEY" \
                 '
                   .name = "Jellyfin"
                   | .onGrab = false
@@ -104,16 +108,18 @@ spec:
             - name: HOME
               value: /tmp
           volumeMounts:
-            - name: lidarr-secrets
-              mountPath: /etc/secrets/lidarr
+            - name: lidarr-config
+              mountPath: /config/lidarr
               readOnly: true
-            - name: jellyfin-secrets
-              mountPath: /etc/secrets/jellyfin
+            - name: jellyfin-config
+              mountPath: /config/jellyfin
               readOnly: true
       volumes:
-        - name: lidarr-secrets
-          secret:
-            secretName: lidarr-secrets
-        - name: jellyfin-secrets
-          secret:
-            secretName: jellyfin-secrets
+        - name: lidarr-config
+          hostPath:
+            path: /data/.state/lidarr
+            type: Directory
+        - name: jellyfin-config
+          hostPath:
+            path: /data/.state/jellyfin
+            type: Directory

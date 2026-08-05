@@ -15,8 +15,6 @@ spec:
       serviceAccountName: servarr-jobs
       restartPolicy: OnFailure
       securityContext:
-        runAsUser: 1000
-        runAsGroup: 169
         fsGroup: 169
       containers:
         - name: radarr-jellyfin-connect
@@ -28,8 +26,14 @@ spec:
               apk add --no-cache curl jq >/dev/null
 
               RADARR_URL="http://servarr-radarr:7878"
-              RADARR_API_KEY=$(cat /etc/secrets/radarr/api_key)
-              JELLYFIN_API_KEY=$(cat /etc/secrets/jellyfin/api_key)
+              RADARR_KEY=""
+              if [ -f /config/radarr/config.xml ]; then
+                RADARR_KEY=$(grep -oP 'ApiKey>[^<]+' /config/radarr/config.xml | head -1 | sed 's/ApiKey>//')
+              fi
+              JELLYFIN_KEY=""
+              if [ -f /config/jellyfin/system.xml ]; then
+                JELLYFIN_KEY=$(grep -oP '<ApiKey>[^<]+' /config/jellyfin/system.xml | head -1 | sed 's/<ApiKey>//')
+              fi
 
               for i in $(seq 1 60); do
                 if curl -sf -H "X-Api-Key: $RADARR_API_KEY" \
@@ -56,7 +60,7 @@ spec:
               NOTIFICATION=$(echo "$SCHEMA" | jq \
                 --arg host "jellyfin" \
                 --argjson port 8096 \
-                --arg apiKey "$JELLYFIN_API_KEY" \
+                --arg apiKey "$JELLYFIN_KEY" \
                 '
                   .name = "Jellyfin"
                   | .onGrab = false
@@ -101,16 +105,18 @@ spec:
             - name: HOME
               value: /tmp
           volumeMounts:
-            - name: radarr-secrets
-              mountPath: /etc/secrets/radarr
+            - name: radarr-config
+              mountPath: /config/radarr
               readOnly: true
-            - name: jellyfin-secrets
-              mountPath: /etc/secrets/jellyfin
+            - name: jellyfin-config
+              mountPath: /config/jellyfin
               readOnly: true
       volumes:
-        - name: radarr-secrets
-          secret:
-            secretName: radarr-secrets
-        - name: jellyfin-secrets
-          secret:
-            secretName: jellyfin-secrets
+        - name: radarr-config
+          hostPath:
+            path: /data/.state/radarr
+            type: Directory
+        - name: jellyfin-config
+          hostPath:
+            path: /data/.state/jellyfin
+            type: Directory

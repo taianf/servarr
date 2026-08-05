@@ -7,10 +7,26 @@
 #   bin/apply-jobs                       # run all Jobs
 #   bin/apply-jobs prowlarr-applications # run one Job
 #   bin/apply-jobs seerr                # substring match
+#
+# While a Job is running, we poll its status every 2s and print
+# a spinner + a one-line status ("waiting for pod… 0/1 completions,
+# active for 14s") so the user has a heartbeat. The previous
+# `kubectl wait` blocked silently for up to 5 min.
 set -euo pipefail
 
 JOBS_DIR="$(cd "$(dirname "$0")/../manifests/jobs" && pwd)"
 NAMESPACE="${NAMESPACE:-servarr}"
+JOB_TIMEOUT="${JOB_TIMEOUT:-900}"  # 15 min total per Job
+
+# Spinner frames (one char per poll tick).
+SPINNER=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
+
+# Human-readable state from the Job's status field.
+job_state() {
+  local name="$1"
+  kubectl get job -n "$NAMESPACE" "$name" \
+    -o jsonpath='{.status.succeeded}/{.status.failed}/{.status.active}' 2>/dev/null || echo "0/0/0"
+}
 
 run_job() {
   local job_name="$1"
@@ -23,20 +39,81 @@ run_job() {
 
   # Delete any prior run of this Job. --ignore-not-found makes
   # the first run (or a Job that was already cleaned) succeed.
-  kubectl delete job -n "$NAMESPACE" "$job_name" --ignore-not-found
+  kubectl delete job -n "$NAMESPACE" "$job_name" --ignore-not-found 2>/dev/null
 
   # Apply the manifest. The Job spec is the source of truth; we
   # don't pin metadata.generation or anything like that.
   kubectl apply -n "$NAMESPACE" -f "$manifest"
 
-  echo "Waiting for Job $job_name..."
-  if kubectl wait --for=condition=complete --timeout=300s \
-      -n "$NAMESPACE" "job/$job_name" 2>/dev/null; then
-    echo "  OK"
-  else
-    echo "  Job did not complete cleanly — check: kubectl logs -n $NAMESPACE -l job-name=$job_name"
-    return 1
-  fi
+  echo
+  echo "▶ Waiting for Job $job_name (timeout: ${JOB_TIMEOUT}s)..."
+  local start=$SECONDS
+  local spin_idx=0
+
+  while true; do
+    # Check the Job's condition. Conditions is an array; look for
+    # Complete=True (success) or Complete=False (failure) or
+    # Failed=True.
+    local cond_type cond_status
+    while read -r cond_type cond_status; do
+      case "$cond_type" in
+        Complete)
+          local elapsed=$((SECONDS - start))
+          if [ "$cond_status" = "True" ]; then
+            printf '\r  \033[32m✓\033[0m %s (done in %ss)\n' "$job_name" "$elapsed"
+            return 0
+          else
+            printf '\r  \033[31m✗\033[0m %s (failed after %ss)\n' "$job_name" "$elapsed"
+            echo "    hint: kubectl logs -n $NAMESPACE -l job-name=$job_name --previous"
+            return 1
+          fi
+          ;;
+      esac
+    done < <(kubectl get job -n "$NAMESPACE" "$job_name" \
+              -o jsonpath='{range .status.conditions[*]}{.type}{" "}{.status}{"\n"}{end}' 2>/dev/null)
+
+    # Timeout check
+    local now=$SECONDS
+    if [ $((now - start)) -ge "$JOB_TIMEOUT" ]; then
+      printf '\r  \033[31m✗\033[0m %s (timed out after %ss)\n' "$job_name" "$JOB_TIMEOUT"
+      echo "    hint: kubectl logs -n $NAMESPACE -l job-name=$job_name"
+      return 1
+    fi
+
+    # Heartbeat: spinner + elapsed + Job completion status + pod state
+    local elapsed=$((now - start))
+    local stats
+    stats=$(job_state "$job_name")
+    # Succeeded/Failed/Active
+    local completed failed active
+    IFS='/' read -r completed failed active <<< "$stats"
+
+    # Look at the Job's pod for an extra state hint
+    local pod_phase
+    pod_phase=$(kubectl get pods -n "$NAMESPACE" -l job-name=$job_name \
+                -o jsonpath='{.items[0].status.phase}' 2>/dev/null) || pod_phase=""
+    local pod_init
+    pod_init=$(kubectl get pods -n "$NAMESPACE" -l job-name=$job_name \
+               -o jsonpath='{.items[0].status.initContainerStatuses[0].state}' 2>/dev/null) || pod_init=""
+
+    local phase_msg=""
+    case "$pod_phase" in
+      Pending)   phase_msg="(pod pending)" ;;
+      Running)   phase_msg="(pod running)"  ;;
+      Succeeded) phase_msg="(pod done)"      ;;
+      Failed)    phase_msg="(pod failed)"    ;;
+      "")        phase_msg=""                ;;
+      *)         phase_msg="(pod: $pod_phase)" ;;
+    esac
+    [ -n "$pod_init" ] && phase_msg="$phase_msg, init: $pod_init"
+
+    local frame="${SPINNER[$((spin_idx % ${#SPINNER[@]}))]}"
+    printf '\r  %s %3ss — %s complete=%s failed=%s active=%s %s' \
+      "$frame" "$elapsed" "$job_name" "$completed" "$failed" "$active" "$phase_msg"
+
+    spin_idx=$((spin_idx + 1))
+    sleep 2
+  done
 }
 
 if [ $# -eq 0 ]; then

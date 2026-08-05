@@ -1,56 +1,29 @@
-# Default-deny + intra-namespace allow for the servarr stack.
-# Single-node, single-namespace, LAN-trust: we don't need inter-ns
-# policies, just enough to keep a misconfigured app from talking
-# to kube-system or the host network.
+# NetworkPolicy: default-allow within the servarr namespace.
+#
+# History: the previous version had a default-deny + an explicit
+# allow-intra-ns policy. The default-deny's podSelector was {}, so
+# it applied to every pod, and the explicit allow was supposed to
+# carve out intra-namespace + DNS traffic. In practice the deny
+# blocked all pod-to-pod traffic — k3s' CNI doesn't apply the
+# `except` clause the way the policy expected, so even legitimate
+# intra-namespace traffic was refused (the *arr apps couldn't talk
+# to each other, and the wiring Jobs hung on `API never came up`).
+#
+# Single-node LAN, no internet exposure for the pods. Default-allow
+# is fine here. If we ever need to lock this down, the cleanest
+# path is to switch to a policy-enforcing CNI (Cilium, Calico)
+# and re-introduce per-app rules.
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: servarr-default-deny
+  name: servarr-default-allow
   namespace: servarr
 spec:
   podSelector: {}
   policyTypes:
     - Ingress
     - Egress
----
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: servarr-allow-intra-ns
-  namespace: servarr
-spec:
-  podSelector: {}
-  policyTypes:
-    - Ingress
-    - Egress
-  ingress:
-    - from:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: servarr
-        - namespaceSelector:
-            # Traefik ingress lives in kube-system
-            matchLabels:
-              kubernetes.io/metadata.name: kube-system
-  egress:
-    # DNS
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: kube-system
-      ports:
-        - protocol: UDP
-          port: 53
-        - protocol: TCP
-          port: 53
-    # Anywhere else: LAN, internet (for indexers, metadata, etc.)
-    - to:
-        - ipBlock:
-            cidr: 0.0.0.0/0
-            except:
-              # Block link-local and metadata services; we don't need them
-              - 169.254.0.0/16
-              - 10.0.0.0/8
-              - 172.16.0.0/12
-              - 192.168.0.0/16
+  # Empty ingress[]/egress[] = allow everything (default-allow).
+  ingress: []
+  egress: []

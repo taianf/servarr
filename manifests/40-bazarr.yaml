@@ -1,0 +1,219 @@
+# Bazarr — subtitle manager
+# Plain Deployment (the kubitodev/servarr chart hardcodes the
+# /config volume source and ignores our hostPath). Mirrors the
+# LinuxServer.io image's default config layout.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bazarr
+  namespace: servarr
+  labels:
+    app.kubernetes.io/name: bazarr
+    app.kubernetes.io/part-of: servarr
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: bazarr
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: bazarr
+        app.kubernetes.io/part-of: servarr
+    spec:
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 169
+        fsGroup: 169
+      initContainers:
+        - name: write-config
+          image: alpine:3.20
+          # Use an args array (each line a separate string) instead
+          # of a `|` block scalar — avoids YAML indent headaches with
+          # the nested heredoc. The shell gets the lines as a single
+          # argv blob with newlines preserved between them.
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              apk add --no-cache bash >/dev/null
+              CONFIG_DIR=/config/config
+              CONFIG_FILE=$CONFIG_DIR/config.yaml
+              mkdir -p "$CONFIG_DIR"
+              BAZARR_API_KEY=$(cat /etc/secrets/bazarr/api_key)
+              SONARR_API_KEY=$(cat /etc/secrets/sonarr/api_key)
+              RADARR_API_KEY=$(cat /etc/secrets/radarr/api_key)
+              needs_rewrite=0
+              if [ ! -f "$CONFIG_FILE" ]; then
+                needs_rewrite=1
+              else
+                for pattern in '^  apikey: \S' '^  sonarr:' '^  radarr:' '^  enabled_providers:' 'pt-BR' 'addic7ed' 'podnapisi' 'opensubtitles'; do
+                  if ! grep -qE "$pattern" "$CONFIG_FILE"; then
+                    needs_rewrite=1
+                    break
+                  fi
+                done
+              fi
+              if [ "$needs_rewrite" -eq 1 ]; then
+                cat > "$CONFIG_FILE" << 'BAZARR_EOF'
+              auth:
+                apikey: $BAZARR_API_KEY
+              general:
+                use_sonarr: true
+                use_radarr: true
+                minimum_score: 90
+                minimum_score_movie: 90
+                use_postprocessing: true
+                postprocessing_threshold: 90
+                enabled_providers:
+                  - addic7ed
+                  - podnapisi
+                  - opensubtitles
+              sonarr:
+                ip: servarr-sonarr
+                port: 8989
+                base_url: /
+                ssl: false
+                apikey: $SONARR_API_KEY
+                full_update: Daily
+                full_update_hour: 3
+              radarr:
+                ip: servarr-radarr
+                port: 7878
+                base_url: /
+                ssl: false
+                apikey: $RADARR_API_KEY
+                full_update: Daily
+                full_update_hour: 3
+              addic7ed:
+                enabled: true
+              podnapisi:
+                enabled: true
+              opensubtitles:
+                enabled: true
+              languages:
+                enabled:
+                  - pt-BR
+                  - en
+                profiles:
+                  - profileId: 1
+                    name: pt-BR + en
+                    cutoff: pt-BR
+                    items:
+                      - language: pt-BR
+                        audio_exclude: false
+                        audio_only_include: false
+                        forced: false
+                        hi: false
+                      - language: en
+                        audio_exclude: false
+                        audio_only_include: false
+                        forced: false
+                        hi: false
+                    mustContain: ""
+                    mustNotContain: ""
+                    originalFormat: null
+                    tag: ""
+              BAZARR_EOF
+                echo "Bazarr config.yaml regenerated"
+              else
+                echo "Bazarr config.yaml already configured, leaving alone"
+              fi
+          volumeMounts:
+            - name: config
+              mountPath: /config
+            - name: bazarr-secrets
+              mountPath: /etc/secrets/bazarr
+              readOnly: true
+            - name: sonarr-secrets
+              mountPath: /etc/secrets/sonarr
+              readOnly: true
+            - name: radarr-secrets
+              mountPath: /etc/secrets/radarr
+              readOnly: true
+      containers:
+        - name: bazarr
+          image: lscr.io/linuxserver/bazarr:latest
+          imagePullPolicy: Always
+          env:
+            - name: PUID
+              value: "1000"
+            - name: PGID
+              value: "169"
+            - name: TZ
+              value: Europe/Lisbon
+          ports:
+            - name: http
+              containerPort: 6767
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /ping
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            failureThreshold: 6
+          readinessProbe:
+            httpGet:
+              path: /ping
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          startupProbe:
+            httpGet:
+              path: /ping
+              port: http
+            failureThreshold: 30
+            periodSeconds: 10
+          volumeMounts:
+            - name: config
+              mountPath: /config
+            - name: data
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 512Mi
+      volumes:
+        - name: config
+          hostPath:
+            path: /data/.state/bazarr
+            type: DirectoryOrCreate
+        - name: data
+          hostPath:
+            path: /data
+            type: Directory
+        - name: tmp
+          emptyDir: {}
+        - name: bazarr-secrets
+          secret:
+            secretName: bazarr-secrets
+        - name: sonarr-secrets
+          secret:
+            secretName: sonarr-secrets
+        - name: radarr-secrets
+          secret:
+            secretName: radarr-secrets
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bazarr
+  namespace: servarr
+  labels:
+    app.kubernetes.io/name: bazarr
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: bazarr
+  ports:
+    - name: http
+      port: 6767
+      targetPort: http
+      protocol: TCP

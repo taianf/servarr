@@ -3,6 +3,9 @@
 # Mirrors the nixflix seerr-* systemd oneshots in a single Job so
 # ordering is explicit and the call sequence can be eyeballed.
 # Re-runnable: each step is idempotent.
+#
+# Auto-wires all API keys from the *arr hostPath /config dirs.
+# sops only carries passwords (admin creds) now.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -17,8 +20,6 @@ spec:
       serviceAccountName: servarr-jobs
       restartPolicy: OnFailure
       securityContext:
-        runAsUser: 1000
-        runAsGroup: 169
         fsGroup: 169
       initContainers:
         - name: wait-for-deps
@@ -26,8 +27,48 @@ spec:
           command: ["/bin/sh", "-c"]
           args:
             - |
+              set -eu
               apk add --no-cache curl >/dev/null
-              # Wait for Jellyseerr + Jellyfin + the *arr apps
+
+              # Auto-wire API keys from each *arr's /config. The
+              # LinuxServer.io *arr images store the key as
+              # <ApiKey>...</ApiKey> in config.xml. Jellyseerr stores
+              # it in a SQLite DB at /config/app.db. If a *arr
+              # hasn't generated a key yet (first boot, startup
+              # wizard still running) wait_for() will time out and
+              # the Job will retry on backoff.
+
+              get_arr_key() {
+                local cfg="$1"
+                [ -f "$cfg" ] || { echo "  (no $cfg yet)"; return 1; }
+                grep -oP 'ApiKey>[^<]+' "$cfg" | head -1 | sed 's/ApiKey>//'
+              }
+              get_seerr_key() {
+                local db="$1"
+                [ -f "$db" ] || { echo "  (no $db yet)"; return 1; }
+                # Jellyseerr stores settings in a key/value table.
+                # The exact schema varies; use a few likely keys.
+                sqlite3 "$db" \
+                  "SELECT value FROM settings WHERE key IN ('apiKey','api_key','apikey') LIMIT 1;" 2>/dev/null
+              }
+
+              JELLYFIN_KEY=$(get_arr_key /config/jellyfin/config.xml)
+              SEERR_KEY=$(get_seerr_key /config/app.db)
+              SONARR_KEY=$(get_arr_key /config/sonarr/config.xml)
+              RADARR_KEY=$(get_arr_key /config/radarr/config.xml)
+
+              # Persist the keys for the main container (K8s doesn't
+              # share env between init and main containers in a Job
+              # unless we mount a shared volume). Easiest: write to
+              # /tmp and have the main container re-read.
+              mkdir -p /tmp/seerr-setup
+              {
+                echo "JELLYFIN_KEY=$JELLYFIN_KEY"
+                echo "SEERR_KEY=$SEERR_KEY"
+                echo "SONARR_KEY=$SONARR_KEY"
+                echo "RADARR_KEY=$RADARR_KEY"
+              } > /tmp/seerr-setup/keys.env
+
               wait_for() {
                 local name="$1" url="$2" key="$3"
                 echo "Waiting for $name..."
@@ -42,29 +83,28 @@ spec:
                 done
               }
 
-              JELLYFIN_KEY=$(cat /etc/secrets/jellyfin/api_key)
-              SEERR_KEY=$(cat /etc/secrets/seerr/api_key)
-              SONARR_KEY=$(cat /etc/secrets/sonarr/api_key)
-              RADARR_KEY=$(cat /etc/secrets/radarr/api_key)
-
-              wait_for Jellyfin     "http://servarr-jellyfin:8096/System/Info/Public"     "$JELLYFIN_KEY"  || exit 1
+              # wait_for each dep; allow optional keys (e.g. jellyfin
+              # may not have an ApiKey until the startup wizard runs).
+              wait_for Jellyfin     "http://servarr-jellyfin:8096/System/Info/Public"     ""              || true
               wait_for Jellyseerr   "http://servarr-seerr:5055/api/v1/settings"            "$SEERR_KEY"     || exit 1
               wait_for Sonarr       "http://servarr-sonarr:8989/api/v3/system/status"      "$SONARR_KEY"    || exit 1
               wait_for Radarr       "http://servarr-radarr:7878/api/v3/system/status"      "$RADARR_KEY"    || exit 1
 
               echo "All seerr-setup dependencies ready"
           volumeMounts:
-            - name: jellyfin-secrets
-              mountPath: /etc/secrets/jellyfin
+            - name: tmp-seerr-setup
+              mountPath: /tmp
+            - name: jellyfin-config
+              mountPath: /config/jellyfin
               readOnly: true
-            - name: seerr-secrets
-              mountPath: /etc/secrets/seerr
+            - name: seerr-config
+              mountPath: /config
               readOnly: true
-            - name: sonarr-secrets
-              mountPath: /etc/secrets/sonarr
+            - name: sonarr-config
+              mountPath: /config/sonarr
               readOnly: true
-            - name: radarr-secrets
-              mountPath: /etc/secrets/radarr
+            - name: radarr-config
+              mountPath: /config/radarr
               readOnly: true
       containers:
         - name: seerr-setup
@@ -75,64 +115,80 @@ spec:
               set -eu
               apk add --no-cache curl jq >/dev/null
 
+              # Read keys from the shared emptyDir that the init
+              # container wrote them to.
+              . /tmp/seerr-setup/keys.env
+              : "${JELLYFIN_KEY:?}"
+              : "${SEERR_KEY:?}"
+              : "${SONARR_KEY:?}"
+              : "${RADARR_KEY:?}"
+
               SEERR_URL="http://servarr-seerr:5055/api/v1"
-              SEERR_KEY=$(cat /etc/secrets/seerr/api_key)
-              JELLYFIN_KEY=$(cat /etc/secrets/jellyfin/api_key)
-              SONARR_KEY=$(cat /etc/secrets/sonarr/api_key)
-              RADARR_KEY=$(cat /etc/secrets/radarr/api_key)
               H='-H "X-Api-Key: '"$SEERR_KEY"'" -H "Content-Type: application/json"'
 
-              # 1) Jellyfin connection
-              echo "[1/6] Configuring Jellyfin connection in Jellyseerr..."
-              curl -sf -X POST "$SEERR_URL/settings/jellyfin" -H "X-Api-Key: $SEERR_KEY" -H "Content-Type: application/json" \
-                -d '{
-                  "hostnameOrUrl": "http://servarr-jellyfin:8096",
-                  "apiKey": "'"$JELLYFIN_KEY"'",
-                  "useSsl": false,
-                  "activeLibraryType": "movie"
-                }' >/dev/null || echo "  (already configured)"
+              # 1) Jellyfin connection (only if Jellyfin has a key)
+              if [ -n "$JELLYFIN_KEY" ]; then
+                echo "[1/6] Configuring Jellyfin connection in Jellyseerr..."
+                curl -sf -X POST "$SEERR_URL/settings/jellyfin" -H "X-Api-Key: $SEERR_KEY" -H "Content-Type: application/json" \
+                  -d '{
+                    "hostnameOrUrl": "http://servarr-jellyfin:8096",
+                    "apiKey": "'"$JELLYFIN_KEY"'",
+                    "useSsl": false,
+                    "activeLibraryType": "movie"
+                  }' >/dev/null || echo "  (already configured)"
+              else
+                echo "[1/6] Skipping Jellyfin (no ApiKey yet — complete startup wizard first)"
+              fi
 
-              # 2) Default user settings (region, language)
+              # 2) Default user settings
               echo "[2/6] Configuring default user settings..."
               curl -sf -X POST "$SEERR_URL/settings/main" -H "X-Api-Key: $SEERR_KEY" -H "Content-Type: application/json" \
                 -d '{
                   "locale": "pt-BR",
-                  "region": "BR",
+                  "region": "PT",
                   "originalLanguage": "pt"
                 }' >/dev/null || echo "  (already configured)"
 
               # 3) Sonarr instance
-              echo "[3/6] Registering Sonarr instance..."
-              curl -sf -X POST "$SEERR_URL/settings/sonarr" -H "X-Api-Key: $SEERR_KEY" -H "Content-Type: application/json" \
-                -d '[{
-                  "name": "Sonarr",
-                  "hostnameOrUrl": "http://servarr-sonarr:8989",
-                  "apiKey": "'"$SONARR_KEY"'",
-                  "useSsl": false,
-                  "activeProfileId": 1,
-                  "isDefault": true,
-                  "is4k": false,
-                  "enableAutomaticSearch": true,
-                  "enableSeasonFolders": true,
-                  "rootFolder": "/data/media/tv"
-                }]' >/dev/null || echo "  (already configured)"
+              if [ -n "$SONARR_KEY" ]; then
+                echo "[3/6] Registering Sonarr instance..."
+                curl -sf -X POST "$SEERR_URL/settings/sonarr" -H "X-Api-Key: $SEERR_KEY" -H "Content-Type: application/json" \
+                  -d '[{
+                    "name": "Sonarr",
+                    "hostnameOrUrl": "http://servarr-sonarr:8989",
+                    "apiKey": "'"$SONARR_KEY"'",
+                    "useSsl": false,
+                    "activeProfileId": 1,
+                    "isDefault": true,
+                    "is4k": false,
+                    "enableAutomaticSearch": true,
+                    "enableSeasonFolders": true,
+                    "rootFolder": "/data/media/tv"
+                  }]' >/dev/null || echo "  (already configured)"
+              else
+                echo "[3/6] Skipping Sonarr (no ApiKey yet)"
+              fi
 
               # 4) Radarr instance
-              echo "[4/6] Registering Radarr instance..."
-              curl -sf -X POST "$SEERR_URL/settings/radarr" -H "X-Api-Key: $SEERR_KEY" -H "Content-Type: application/json" \
-                -d '[{
-                  "name": "Radarr",
-                  "hostnameOrUrl": "http://servarr-radarr:7878",
-                  "apiKey": "'"$RADARR_KEY"'",
-                  "useSsl": false,
-                  "activeProfileId": 1,
-                  "isDefault": true,
-                  "is4k": false,
-                  "minimumAvailability": "released",
-                  "rootFolder": "/data/media/movies"
-                }]' >/dev/null || echo "  (already configured)"
+              if [ -n "$RADARR_KEY" ]; then
+                echo "[4/6] Registering Radarr instance..."
+                curl -sf -X POST "$SEERR_URL/settings/radarr" -H "X-Api-Key: $SEERR_KEY" -H "Content-Type: application/json" \
+                  -d '[{
+                    "name": "Radarr",
+                    "hostnameOrUrl": "http://servarr-radarr:7878",
+                    "apiKey": "'"$RADARR_KEY"'",
+                    "useSsl": false,
+                    "activeProfileId": 1,
+                    "isDefault": true,
+                    "is4k": false,
+                    "minimumAvailability": "released",
+                    "rootFolder": "/data/media/movies"
+                  }]' >/dev/null || echo "  (already configured)"
+              else
+                echo "[4/6] Skipping Radarr (no ApiKey yet)"
+              fi
 
-              # 5) Library sync (Jellyfin -> Jellyseerr)
+              # 5) Library sync
               echo "[5/6] Triggering Jellyfin library sync..."
               curl -sf -X POST "$SEERR_URL/settings/jellyfin/library" -H "X-Api-Key: $SEERR_KEY" -H "Content-Type: application/json" \
                 -d '{}' >/dev/null || echo "  (already synced)"
@@ -146,28 +202,24 @@ spec:
             - name: HOME
               value: /tmp
           volumeMounts:
-            - name: jellyfin-secrets
-              mountPath: /etc/secrets/jellyfin
-              readOnly: true
-            - name: seerr-secrets
-              mountPath: /etc/secrets/seerr
-              readOnly: true
-            - name: sonarr-secrets
-              mountPath: /etc/secrets/sonarr
-              readOnly: true
-            - name: radarr-secrets
-              mountPath: /etc/secrets/radarr
-              readOnly: true
+            - name: tmp-seerr-setup
+              mountPath: /tmp
       volumes:
-        - name: jellyfin-secrets
-          secret:
-            secretName: jellyfin-secrets
-        - name: seerr-secrets
-          secret:
-            secretName: seerr-secrets
-        - name: sonarr-secrets
-          secret:
-            secretName: sonarr-secrets
-        - name: radarr-secrets
-          secret:
-            secretName: radarr-secrets
+        - name: tmp-seerr-setup
+          emptyDir: {}
+        - name: jellyfin-config
+          hostPath:
+            path: /data/.state/jellyfin
+            type: Directory
+        - name: seerr-config
+          hostPath:
+            path: /data/.state/seerr
+            type: Directory
+        - name: sonarr-config
+          hostPath:
+            path: /data/.state/sonarr
+            type: Directory
+        - name: radarr-config
+          hostPath:
+            path: /data/.state/radarr
+            type: Directory
