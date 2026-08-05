@@ -39,7 +39,7 @@ kubectl apply -f manifests/00-namespace.yaml
 kubectl apply -f manifests/10-networkpolicy.yaml
 kubectl apply -f manifests/20-pvc-recyclarr.yaml
 kubectl apply -f manifests/30-secrets.yaml
-kubectl apply -f manifests/40-readarr.yaml
+# kubectl apply -f manifests/40-readarr.yaml  # readarr is DISABLED (see 40-readarr.yaml)
 kubectl apply -f manifests/50-ingress.yaml
 kubectl apply -f manifests/jobs/00-rbac.yaml
 
