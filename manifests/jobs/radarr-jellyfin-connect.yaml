@@ -15,8 +15,6 @@ spec:
       serviceAccountName: servarr-jobs
       restartPolicy: OnFailure
       securityContext:
-        runAsUser: 1000
-        runAsGroup: 169
         fsGroup: 169
       containers:
         - name: radarr-jellyfin-connect

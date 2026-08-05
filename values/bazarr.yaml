@@ -1,9 +1,12 @@
 # Bazarr — subtitle manager
-# - Config on host at /data/.state/bazarr
-# - Reads /data/media (all libraries) to scan for subs
-# - HTTP service on port 6767
+# NOTE: we use a plain Deployment (manifests/40-bazarr.yaml) instead
+# of the chart. The chart's bazarr subchart hardcodes the /config
+# volume source and ignores `extraVolumes` for the volumes list,
+# which made it impossible to point /config at our hostPath
+# `/data/.state/bazarr`. Keeping this file in helmfile.yaml so
+# the values list is unchanged, but disabling the chart subchart.
 bazarr:
-  enabled: true
+  enabled: false
 
   env:
     PUID: "1000"
@@ -19,8 +22,6 @@ bazarr:
 
   podSecurityContext:
     fsGroup: 169
-    runAsUser: 1000
-    runAsGroup: 169
 
   extraVolumes:
     - name: config
@@ -33,6 +34,18 @@ bazarr:
         type: Directory
     - name: tmp
       emptyDir: {}
+    # Secrets the init container reads to seed Bazarr's config.yaml.
+    # The k8s Secrets themselves are created by bin/render-secrets
+    # (manifests/30-secrets.yaml).
+    - name: bazarr-secrets
+      secret:
+        secretName: bazarr-secrets
+    - name: sonarr-secrets
+      secret:
+        secretName: sonarr-secrets
+    - name: radarr-secrets
+      secret:
+        secretName: radarr-secrets
 
   extraVolumeMounts:
     - name: config

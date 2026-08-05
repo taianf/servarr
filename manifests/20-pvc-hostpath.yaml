@@ -1,0 +1,45 @@
+# Static hostPath PVs + PVCs for the chart apps that hardcode their
+# /config volume source (the chart ignores our `extraVolumes`).
+# Each app gets:
+#   - A PV with hostPath = /data/.state/<app>
+#   - A PVC bound to the PV
+# Then values/*.yaml uses
+# `*.persistence.{config,etc}.existingClaim: <pvc>` to skip the
+# chart's PVC creation and mount our PVC instead.
+#
+# Why static + hostPath instead of dynamic provisioning? Single
+# node, k3s default local-path provisioner would create PVs at
+# /var/lib/rancher/k3s/storage/<pvc> — a path that doesn't match
+# /data/.state/, so the *arr SQLite DBs would be split across two
+# locations. hostPath PVs are explicit about the path.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: servarr-jellyfin-config-pv
+  labels:
+    app.kubernetes.io/part-of: servarr
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: ""
+  hostPath:
+    path: /data/.state/jellyfin
+    type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: servarr-jellyfin-config
+  namespace: servarr
+  labels:
+    app.kubernetes.io/part-of: servarr
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: ""
+  resources:
+    requests:
+      storage: 1Gi
+  volumeName: servarr-jellyfin-config-pv

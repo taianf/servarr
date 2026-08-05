@@ -4,6 +4,10 @@
 # - Reads /data/downloads to pick up completed downloads
 # - HTTP service on port 8989
 sonarr:
+  image:
+    repository: lscr.io/linuxserver/sonarr
+    tag: latest
+    pullPolicy: Always
   enabled: true
 
   env:
@@ -17,18 +21,14 @@ sonarr:
     port: 8989
 
   persistence:
-    enabled: false
+    # Use our pre-created hostPath-backed PVC for /config.
+    enabled: true
+    existingClaim: servarr-sonarr-config
 
   podSecurityContext:
     fsGroup: 169
-    runAsUser: 1000
-    runAsGroup: 169
 
   extraVolumes:
-    - name: config
-      hostPath:
-        path: /data/.state/sonarr
-        type: DirectoryOrCreate
     - name: data
       hostPath:
         path: /data
@@ -37,8 +37,6 @@ sonarr:
       emptyDir: {}
 
   extraVolumeMounts:
-    - name: config
-      mountPath: /config
     - name: data
       mountPath: /data
     - name: tmp

@@ -1,9 +1,16 @@
 # Jellyfin — media server
-# - Config on host at /data/.state/jellyfin
-# - Reads /data/media (all libraries)
-# - Transcoding cache lives in /config/transcodes (same dir)
+# - Config on host at /data/.state/jellyfin (via hostPath PV →
+#   pre-created PVC servarr-jellyfin-config). The chart hardcodes
+#   the config volume source and ignores extraVolumes, so we use
+#   `persistence.existingClaim` to point at our PVC.
+# - Reads /data/media (all libraries) — mounted as /data in the
+#   pod via a plain extraVolumeMount.
 # - HTTP service on port 8096
 jellyfin:
+  image:
+    repository: lscr.io/linuxserver/jellyfin
+    tag: latest
+    pullPolicy: Always
   enabled: true
 
   service:
@@ -11,21 +18,24 @@ jellyfin:
     port: 8096
 
   persistence:
+    # Use our pre-created hostPath-backed PVC for /config.
     config:
-      enabled: false
+      enabled: true
+      existingClaim: servarr-jellyfin-config
+    # We mount the library via /data instead of the chart's media
+    # volume (which only works with the chart's PVC). Leave media
+    # disabled.
     media:
       enabled: false
 
   podSecurityContext:
+    # Run as the image's default user (root); s6-overlay drops to
+    # PUID/PGID via the env vars below. LinuxServer.io images
+    # need this two-phase boot — setting runAsUser directly breaks
+    # the s6 init ("unable to set supplementary group list").
     fsGroup: 169
-    runAsUser: 1000
-    runAsGroup: 169
 
   extraVolumes:
-    - name: config
-      hostPath:
-        path: /data/.state/jellyfin
-        type: DirectoryOrCreate
     - name: data
       hostPath:
         path: /data
@@ -34,12 +44,15 @@ jellyfin:
       emptyDir: {}
 
   extraVolumeMounts:
-    - name: config
-      mountPath: /config
     - name: data
       mountPath: /data
     - name: tmp
       mountPath: /tmp
+
+  env:
+    PUID: "1000"
+    PGID: "169"
+    TZ: "America/Sao_Paulo"
 
   resources:
     requests:
