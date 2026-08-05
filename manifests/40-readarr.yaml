@@ -39,7 +39,7 @@ spec:
             - name: PGID
               value: "169"
             - name: TZ
-              value: America/Sao_Paulo
+              value: Europe/Lisbon
             - name: UMASK
               value: "002"
           ports:
