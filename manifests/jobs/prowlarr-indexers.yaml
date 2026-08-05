@@ -1,8 +1,11 @@
 # prowlarr-indexers: declare the indexer list in Prowlarr.
 # Idempotent. The list is mirrored from the nixflix NixOS config
 # (nixflix/default.nix lines 96-102). Edit this list (and re-run
-# `kubectl create job --from=jobs/prowlarr-indexers`) when you want
-# to add/remove indexers.
+# `bin/apply-jobs prowlarr-indexers`) when you want to add/remove
+# indexers.
+#
+# Auto-wires Prowlarr's ApiKey from /config/prowlarr/config.xml
+# (hostPath mount). No sops dependency.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -24,9 +27,19 @@ spec:
           command: ["/bin/sh", "-c"]
           args:
             - |
+              set -eu
               apk add --no-cache curl >/dev/null
+
+              PROWLARR_CFG=/config/prowlarr/config.xml
+              [ -f "$PROWLARR_CFG" ] || { echo "Prowlarr config not found at $PROWLARR_CFG"; exit 1; }
+              API_KEY=$(grep -oP 'ApiKey>[^<]+' "$PROWLARR_CFG" | head -1 | sed 's/ApiKey>//')
+              [ -n "$API_KEY" ] || { echo "Prowlarr config has no ApiKey yet"; exit 1; }
+
+              # Persist for the main container via /tmp.
+              mkdir -p /tmp/prowlarr-indexers
+              echo "$API_KEY" > /tmp/prowlarr-indexers/api_key
+
               PROWLARR_URL="http://servarr-prowlarr:9696"
-              API_KEY=$(cat /etc/secrets/prowlarr/api_key)
               for i in $(seq 1 60); do
                 if curl -sf -H "X-Api-Key: $API_KEY" "$PROWLARR_URL/api/v1/system/status" >/dev/null; then
                   echo "Prowlarr API ready"
@@ -36,8 +49,10 @@ spec:
                 sleep 2
               done
           volumeMounts:
-            - name: prowlarr-secrets
-              mountPath: /etc/secrets/prowlarr
+            - name: tmp-prowlarr-indexers
+              mountPath: /tmp
+            - name: prowlarr-config
+              mountPath: /config
               readOnly: true
       containers:
         - name: prowlarr-indexers
@@ -48,13 +63,11 @@ spec:
               set -eu
               apk add --no-cache curl jq >/dev/null
 
+              API_KEY=$(cat /tmp/prowlarr-indexers/api_key)
               PROWLARR_URL="http://servarr-prowlarr:9696"
-              API_KEY=$(cat /etc/secrets/prowlarr/api_key)
 
               # Indexer list (kept in sync with the nixflix NixOS config).
               # Each entry is "Name|DefinitionPath|Protocol|Privacy|Url".
-              # `DefinitionPath` is the path segment under Prowlarr's
-              # /api/v1/indexer/schema where the implementation lives.
               INDEXERS='
                 The Pirate Bay|cardigann|1|1|https://thepiratebay.org
                 1337x|cardigann|1|1|https://1337x.to
@@ -130,10 +143,12 @@ spec:
             - name: HOME
               value: /tmp
           volumeMounts:
-            - name: prowlarr-secrets
-              mountPath: /etc/secrets/prowlarr
-              readOnly: true
+            - name: tmp-prowlarr-indexers
+              mountPath: /tmp
       volumes:
-        - name: prowlarr-secrets
-          secret:
-            secretName: prowlarr-secrets
+        - name: tmp-prowlarr-indexers
+          emptyDir: {}
+        - name: prowlarr-config
+          hostPath:
+            path: /data/.state/prowlarr
+            type: Directory

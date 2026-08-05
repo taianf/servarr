@@ -4,6 +4,11 @@
 # start; this Job handles settings that Bazarr stores in its
 # database (so they must be set via the API, not the YAML).
 # Idempotent: a no-op when settings are already correct.
+#
+# Auto-wires the Bazarr API key from /config/config/config.yaml
+# (hostPath-mounted). The LinuxServer.io image generates the key
+# on first boot; once stable (persistent /config), every Job
+# just greps it out of the YAML.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -29,11 +34,23 @@ spec:
               apk add --no-cache curl >/dev/null
 
               BAZARR_URL="http://bazarr:6767"
-              BAZARR_API_KEY=$(cat /etc/secrets/bazarr/api_key)
+
+              # Auto-wire: read Bazarr's auto-generated API key
+              # from its config. Skip if Bazarr hasn't booted yet
+              # (first-boot wizard still running).
+              BAZARR_CFG=/config/config/config.yaml
+              if [ ! -f "$BAZARR_CFG" ]; then
+                echo "Bazarr config not found at $BAZARR_CFG (container not started yet?)"
+                exit 1
+              fi
+              API_KEY=$(grep -E '^[[:space:]]*apikey:' "$BAZARR_CFG" | head -1 | sed -E 's/^[[:space:]]*apikey:[[:space:]]*//')
+              if [ -z "$API_KEY" ]; then
+                echo "Bazarr config has no apikey yet (startup wizard not complete?)"
+                exit 1
+              fi
 
               for i in $(seq 1 60); do
-                if curl -sf -H "X-Api-Key: $BAZARR_API_KEY" \
-                  "$BAZARR_URL/api/system/settings" >/dev/null; then
+                if curl -sf -H "X-Api-Key: $API_KEY" "$BAZARR_URL/api/system/status" >/dev/null; then
                   break
                 fi
                 [ "$i" -eq 60 ] && { echo "Bazarr API never came up"; exit 1; }
@@ -42,7 +59,7 @@ spec:
 
               HTTP_CODE=$(curl -s -o /tmp/bazarr_resp -w "%{http_code}" \
                 -X POST "$BAZARR_URL/api/system/settings" \
-                -H "X-Api-Key: $BAZARR_API_KEY" \
+                -H "X-Api-Key: $API_KEY" \
                 -d 'settings-general-use_sonarr=true' \
                 -d 'settings-general-use_radarr=true' \
                 -d 'settings-general-minimum_score=90' \
@@ -71,10 +88,11 @@ spec:
             - name: HOME
               value: /tmp
           volumeMounts:
-            - name: bazarr-secrets
-              mountPath: /etc/secrets/bazarr
+            - name: bazarr-config
+              mountPath: /config
               readOnly: true
       volumes:
-        - name: bazarr-secrets
-          secret:
-            secretName: bazarr-secrets
+        - name: bazarr-config
+          hostPath:
+            path: /data/.state/bazarr
+            type: Directory

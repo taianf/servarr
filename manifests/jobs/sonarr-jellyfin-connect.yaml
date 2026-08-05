@@ -29,8 +29,14 @@ spec:
               SONARR_URL="http://servarr-sonarr:8989"
               JELLYFIN_URL="http://servarr-jellyfin:8096"
 
-              SONARR_API_KEY=$(cat /etc/secrets/sonarr/api_key)
-              JELLYFIN_API_KEY=$(cat /etc/secrets/jellyfin/api_key)
+              SONARR_KEY=""
+              if [ -f /config/sonarr/config.xml ]; then
+                SONARR_KEY=$(grep -oP 'ApiKey>[^<]+' /config/sonarr/config.xml | head -1 | sed 's/ApiKey>//')
+              fi
+              JELLYFIN_KEY=""
+              if [ -f /config/jellyfin/system.xml ]; then
+                JELLYFIN_KEY=$(grep -oP '<ApiKey>[^<]+' /config/jellyfin/system.xml | head -1 | sed 's/<ApiKey>//')
+              fi
 
               # Wait for Sonarr API
               for i in $(seq 1 60); do
@@ -62,7 +68,7 @@ spec:
               NOTIFICATION=$(echo "$SCHEMA" | jq \
                 --arg host "jellyfin" \
                 --argjson port 8096 \
-                --arg apiKey "$JELLYFIN_API_KEY" \
+                --arg apiKey "$JELLYFIN_KEY" \
                 '
                   .name = "Jellyfin"
                   | .onGrab = false
@@ -108,16 +114,18 @@ spec:
             - name: HOME
               value: /tmp
           volumeMounts:
-            - name: sonarr-secrets
-              mountPath: /etc/secrets/sonarr
+            - name: sonarr-config
+              mountPath: /config/sonarr
               readOnly: true
-            - name: jellyfin-secrets
-              mountPath: /etc/secrets/jellyfin
+            - name: jellyfin-config
+              mountPath: /config/jellyfin
               readOnly: true
       volumes:
-        - name: sonarr-secrets
-          secret:
-            secretName: sonarr-secrets
-        - name: jellyfin-secrets
-          secret:
-            secretName: jellyfin-secrets
+        - name: sonarr-config
+          hostPath:
+            path: /data/.state/sonarr
+            type: Directory
+        - name: jellyfin-config
+          hostPath:
+            path: /data/.state/jellyfin
+            type: Directory
