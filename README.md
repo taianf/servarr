@@ -2,7 +2,7 @@
 
 Migration of the nixflix media stack (Sonarr, Radarr, Lidarr,
 Readarr, Prowlarr, qBittorrent, Jellyfin, Jellyseerr, Bazarr,
-Cleanuparr, FlareSolverr, Recyclarr) from NixOS systemd services
+Cleanuparr, FlareSolverr, Recyclarr) from a single-host systemd / Docker setup
 to a single-node k3s cluster, deployed via `helmfile`.
 
 The cluster runs **side-by-side** with nixflix: both stacks share
@@ -14,9 +14,8 @@ flipped on so the `:30080` port suffix drops off the URLs.
 ## Why k3s + helmfile
 
 - **k3s single-node** — Traefik + servicelb + local-path are
-  pre-installed; one `nixup` brings the whole cluster up as a
-  supervised systemd service. Heavier distributions (Talos, full
-  kubeadm) are overkill for one host.
+  pre-installed (via the standard k3s install script). Heavier
+  distributions (Talos, full kubeadm) are overkill for one host.
 - **helmfile** — the *arr apps are all 10-line values overrides
   of one chart (kubitodev/servarr). helmfile gives us a single
   YAML to apply, diff, and roll back. No GitOps server required
@@ -71,27 +70,24 @@ servarr/
     └── status                          # quick stack overview
 ```
 
-## Host / NixOS setup
+## Host setup
 
-The k3s side is wired into the dotfiles repo as a NixOS module.
-See `nixos/k3s.nix` (in the dotfiles worktree branch
-`feat/k3s-servarr-migration`). The module:
-
-- Enables `services.k3s` with role=server.
-- Writes a `HelmChartConfig` to `/var/lib/rancher/k3s/server/manifests/traefik-config.yaml`
-  so the bundled Traefik chart binds to **NodePort 30080/30443**
-  instead of 80/443 — keeps nixflix's nginx on 80/443 during the
-  side-by-side phase.
-- Adds `*.k8s.nixflix` to `/etc/hosts` (resolved to 127.0.0.1,
-  so each `*arr` URL is `http://<service>.k8s.nixflix:30080`).
-- Optionally adds an iptables forward (set `ingressForward = true`
-  in `nixos/configuration.nix`) once nixflix is removed.
+k3s is installed via the standard upstream install script
+(<https://docs.k3s.io/quick-start>). After install, write a
+`HelmChartConfig` to `/var/lib/rancher/k3s/server/manifests/traefik-config.yaml`
+so the bundled Traefik chart binds to **NodePort 30080/30443**
+instead of 80/443 — keeps nixflix's nginx on 80/443 during the
+side-by-side phase. Add `*.k8s.nixflix` to `/etc/hosts`
+(resolved to 127.0.0.1, so each `*arr` URL is
+`http://<service>.k8s.nixflix:30080`).
 
 The `hostPath` layout assumes the same `/data` tree as nixflix:
 `/data/media/{movies,tv,music,books}`, `/data/downloads/{complete,incomplete}`,
-`/data/.state/<app>`. The NixOS module sets PUID=1000 / PGID=169
-(host's `media` group GID) on every *arr pod so files are
-read/writable by both stacks.
+`/data/.state/<app>`. PUID=1000 / PGID=169 is the host's
+`media` group GID; every *arr pod's `securityContext` sets both
+so files are read/writable by both stacks. (On a fresh host
+without nixflix, just create the `media` group with GID 169 and
+add your user to it.)
 
 ## Common tasks
 
@@ -132,9 +128,8 @@ Variables: `APP`, `JOB`, `NAMESPACE` — override on the command line, e.g. `mak
 ## Bring-up
 
 ```bash
-# 1) In the dotfiles worktree: rebuild the host.
-cd ~/dotfiles
-nixup                                # enables k3s, writes Traefik
+# 1) Install k3s (Ubuntu/Debian example; RHEL/Fedora/etc. analog):
+curl -sfL https://get.k3s.io | sh -
                                      # HelmChartConfig, sets up /etc/hosts
 
 # 2) Wait for k3s to be ready.
@@ -191,7 +186,7 @@ log/exec/describe. Reads the same `KUBECONFIG` as kubectl, so no
 extra config needed after the [Bring-up](#bring-up) steps.
 
 ```bash
-# After sudo nixup picks up pkgs.k9s:
+# k9s comes from your host package manager (apt/brew/dnf).
 k9s
 ```
 
@@ -237,18 +232,16 @@ bin/status
 sudo systemctl stop --now nginx sonarr radarr lidarr prowlarr \
   qbittorrent jellyfin bazarr seerr recyclarr
 
-# 3) Enable the iptables forward in the NixOS module.
-#    Edit nixos/configuration.nix:
-#      services.k3s-servarr.ingressForward = true;
-#    Then:
-nixup
+# 3) Add the port-forward iptables rules (drop the :30080 suffix):
+#    sudo iptables -t nat -A PREROUTING -p tcp --dport 80 \
+#      -j REDIRECT --to-port 30080
+#    sudo iptables -t nat -A PREROUTING -p tcp --dport 443 \
+#      -j REDIRECT --to-port 30443
 
 # 4) Update /etc/hosts: drop the *arr aliases, keep *.k8s.nixflix.
-#    (The NixOS module adds the *.k8s.nixflix entries; the *.nixflix
-#    entries are added by nixflix's nginx module and will go away
+#    (The k3s install added *.k8s.nixflix; the *.nixflix entries
+#    were added by nixflix's nginx module and will go away
 #    when nixflix is uninstalled.)
-
-# 5) Remove nixflix from nixos/configuration.nix imports and rebuild.
 ```
 
 ## Open follow-ups
